@@ -1,0 +1,3466 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OCR Workspace — {{ doc_ref }}</title>
+    
+    <link rel="icon" type="image/x-icon" href="{% static 'img/favicon.ico' %}">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+    <link rel="stylesheet" href="{% static 'css/font-awesome/all.min.css' %}">
+    <link rel="stylesheet" href="{% static 'css/abbyy_editor.css' %}?v=1.0">
+    
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body { height: 100%; overflow: hidden; font-family: 'Inter', 'Segoe UI', sans-serif; background: #f0f2f5; }
+
+        /* ── Top menu bar ─────────────────────────────────────── */
+        .aw-top-bar {
+            height: 38px;
+            background: #0f172a;
+            display: flex;
+            align-items: center;
+            padding: 0 16px;
+            gap: 24px;
+            user-select: none;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        .aw-top-bar .doc-title {
+            font-size: 13px;
+            color: #94a3b8;
+            font-weight: 500;
+            flex: 1;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .aw-top-bar .status-pill {
+            font-size: 10px;
+            padding: 2px 12px;
+            border-radius: 6px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .aw-top-bar .status-pill.readonly { background: #f59e0b22; color: #f59e0b; border: 1px solid #f59e0b44; }
+        /* ── Ribbon toolbar ───────────────────────────────────── */
+        .aw-ribbon {
+            background: #f8fafc;
+            border-bottom: 1px solid #cbd5e1;
+            display: flex;
+            flex-direction: column;
+            padding: 4px;
+            z-index: 1000;
+        }
+        .ribbon-row {
+            display: flex;
+            align-items: stretch;
+            gap: 2px;
+            min-height: 42px;
+        }
+        .rbn-group {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 2px 8px;
+            border-right: 1px solid #e2e8f0;
+            gap: 4px;
+        }
+        .rbn-group:last-child { border-right: none; }
+        .rbn-group-tools {
+            display: flex;
+            align-items: center;
+            gap: 2px;
+            height: 28px;
+        }
+        .rbn-group-label {
+            font-size: 9px;
+            font-weight: 700;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .rbn-sep { width: 1px; height: 18px; background: #cbd5e1; margin: 0 4px; }
+        
+        .rbn-btn {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 0 8px;
+            height: 28px;
+            border: 1px solid transparent;
+            background: transparent;
+            border-radius: 4px;
+            cursor: pointer;
+            color: #475569;
+            transition: all 0.15s;
+        }
+        .rbn-btn:hover { background: #f1f5f9; color: #0f172a; border-color: #cbd5e1; }
+        .rbn-btn.active { background: #3b82f6 !important; color: #fff !important; border-color: #2563eb; }
+        .rbn-btn.active i { color: #fff !important; }
+        .rbn-btn.accent { color: #2563eb; font-weight: 600; }
+        .rbn-btn i { font-size: 14px; color: inherit; }
+        .rbn-label { font-size: 11px; font-weight: 500; }
+        
+        .rbn-select {
+            height: 26px;
+            padding: 0 4px;
+            border: 1px solid #cbd5e1;
+            border-radius: 4px;
+            font-size: 12px;
+            background: #fff;
+            color: #334155;
+            outline: none;
+        }
+        .rbn-tool-btn {
+            width: 28px;
+            height: 28px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid transparent;
+            background: transparent;
+            border-radius: 4px;
+            cursor: pointer;
+            color: #64748b;
+            transition: all 0.1s;
+        }
+        .rbn-tool-btn:hover { background: #fff; border-color: #cbd5e1; color: #1e293b; }
+        .rbn-tool-btn.active { background: #3b82f6; color: #fff; border-color: #1d4ed8; }
+        .rbn-tool-btn i { font-size: 14px; }
+
+        /* ── Body layout ──────────────────────────────────────── */
+        .aw-body {
+            display: flex;
+            height: calc(100vh - 32px - 100px - 26px); /* Adjusted for taller ribbon */
+            overflow: hidden;
+        }
+
+        /* ── Thumbnail sidebar ────────────────────────────────── */
+        .aw-thumbs {
+            width: 160px;
+            min-width: 100px;
+            background: #f8fafc;
+            border-right: 1px solid #d0d8e4;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+        }
+        .aw-thumbs-title {
+            padding: 6px 10px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: #64748b;
+            border-bottom: 1px solid #e2e8f0;
+            background: #f1f5f9;
+        }
+        .aw-thumb-item {
+            padding: 10px 8px;
+            border-bottom: 1px solid #e8edf2;
+            cursor: pointer;
+            text-align: center;
+            transition: background 0.15s;
+        }
+        .aw-thumb-item:hover { background: #eff6ff; }
+        .aw-thumb-item.active {
+            background: #dbeafe;
+            border-left: 3px solid #2563eb;
+        }
+        .aw-thumb-canvas {
+            width: 110px;
+            height: 140px;
+            border: 1px solid #c9d4e0;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+            display: block;
+            margin: 0 auto 5px;
+            background: white;
+        }
+        .aw-thumb-label {
+            font-size: 11px;
+            color: #475569;
+            font-weight: 500;
+        }
+
+        /* ── Main viewport ────────────────────────────────────── */
+        .aw-viewport {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+
+        /* ── Single pane (image view) ─────────────────────────── */
+        .aw-pane {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            background: #4a4f57;
+        }
+        .aw-pane-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 16px;
+            background: #1e293b;
+            color: #94a3b8;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            height: 32px;
+            flex-shrink: 0;
+            border-bottom: 1px solid #334155;
+        }
+        .aw-pane-scroll {
+            flex: 1;
+            overflow: auto;
+            display: flex;
+            align-items: flex-start;
+            justify-content: center;
+            padding: 24px;
+        }
+
+        /* ── Divider ──────────────────────────────────────────── */
+        .aw-divider {
+            width: 5px;
+            background: #d0d8e4;
+            cursor: col-resize;
+            flex-shrink: 0;
+            transition: background 0.15s;
+        }
+        .aw-divider:hover, .aw-divider.dragging { background: #2563eb; }
+
+        /* ── Editor pane ──────────────────────────────────────── */
+        .aw-editor-pane {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            background: #4a4f57;
+        }
+        .aw-editor-scroll {
+            flex: 1;
+            overflow: auto;
+            display: flex;
+            align-items: flex-start;
+            justify-content: center;
+            padding: 24px;
+        }
+        .aw-editor-bg {
+            background: white;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.4);
+            position: relative;
+            flex-shrink: 0;
+        }
+
+        /* ── Page container (image side) ─────────────────────── */
+        .aw-page-container {
+            background: white;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.4);
+            position: relative;
+            display: block;
+            flex-shrink: 0;
+            border-radius: 2px;
+        }
+        .aw-page-canvas { display: block; }
+        .aw-area-layer {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: auto;
+        }
+
+        /* ── OCR Area rectangles ──────────────────────────────── */
+        .aw-area {
+            position: absolute;
+            border: 2px solid #10b981;
+            /* Faint fill for ABBYY style */
+            background: rgba(16, 185, 129, 0.05);
+            cursor: pointer;
+            z-index: 10;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            box-sizing: border-box;
+            pointer-events: auto;
+        }
+        .aw-area.type-text    { border-color: #16a34a; background: rgba(22, 163, 74, 0.08); }
+        .aw-area.type-table   { border-color: #2563eb; background: rgba(37, 99, 235, 0.04); overflow: visible; position: absolute; }
+        .aw-area.type-image   { border-color: #dc2626; background: rgba(220, 38, 38, 0.08); }
+        .aw-area.type-line    { border-color: #8b5cf6; background: rgba(139, 92, 246, 0.1); }
+        .aw-area.type-underline { border-color: #f59e0b; background: rgba(245, 158, 11, 0.1); }
+        .aw-area.type-double_line { border-color: #8b5cf6; background: rgba(139, 92, 246, 0.15); }
+        .aw-area.is-underlined { border-bottom: 3px double #f59e0b !important; }
+        
+        .aw-area:hover {
+            box-shadow: 0 0 12px rgba(16, 163, 74, 0.4);
+            background: rgba(22, 163, 74, 0.12);
+            z-index: 100;
+        }
+        .aw-area.active {
+            border-width: 3px !important;
+            /* Dashed selection - ABBYY style */
+            border-style: dashed !important;
+            box-shadow: 0 0 20px rgba(16, 163, 74, 0.6);
+            z-index: 1000;
+            background: rgba(22, 163, 74, 0.15);
+        }
+        .aw-area.type-table.active { 
+            border-color: #2563eb !important;
+            box-shadow: 0 0 20px rgba(37, 99, 235, 0.6); 
+            background: rgba(37, 99, 235, 0.15); 
+        }
+        .aw-area.highlighted  { outline: 2px solid #f59e0b; }
+        
+        /* Area Tools Overlay (Left Pane) - Unified Style */
+        .aw-area-tools {
+            position: absolute; top: 0; right: 0; display: none;
+            background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(8px);
+            color: #fff; padding: 4px 8px; border-radius: 0 0 0 8px; font-size: 13px; gap: 12px; z-index: 1000;
+            border-left: 1px solid rgba(255,255,255,0.2); border-bottom: 1px solid rgba(255,255,255,0.2);
+            box-shadow: -4px 4px 12px rgba(0,0,0,0.2);
+        }
+        .aw-area:hover .aw-area-tools { display: flex; align-items: center; }
+        .aw-area-tools span { cursor: pointer; display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 4px; transition: 0.2s; color: #cbd5e1; }
+        .aw-area-tools span:hover { background: rgba(255,255,255,0.1); color: #fff; }
+        .aw-area-tools.table-tools { border-color: rgba(37,99,235,0.3); }
+
+        /* Table Grid Lines — draggable vertical lines */
+        .aw-table-line {
+            position: absolute;
+            background: rgba(37, 99, 235, 0.7);
+            z-index: 5;
+        }
+        .aw-table-line.v {
+            width: 2px; height: 100%; top: 0;
+            transform: translateX(-1px);
+            pointer-events: auto;
+            cursor: col-resize;
+        }
+        .aw-table-line.v::after {
+            content: '';
+            position: absolute;
+            left: -5px; top: 0;
+            width: 12px; height: 100%;
+        }
+        .aw-table-line.v:hover,
+        .aw-table-line.v.dragging {
+            background: #2563eb;
+            box-shadow: 0 0 0 2px rgba(37,99,235,0.25);
+        }
+        .aw-table-line.h { 
+            height: 6px; width: 100%; left: 0; transform: translateY(-3px); 
+            cursor: row-resize; z-index: 10; 
+        }
+        .aw-table-line.h::after {
+            content: ''; position: absolute; left: 0; right: 0; top: 2px; height: 2px; 
+            background: rgba(37, 99, 235, 0); transition: background 0.2s;
+        }
+        .aw-table-line.h:hover,
+        .aw-table-line.h.dragging { background: rgba(37, 99, 235, 0.5); }
+        .aw-table-line.h:hover::after,
+        .aw-table-line.h.dragging::after { background: #2563eb; }
+
+        /* Area number badge */
+        .aw-area-badge {
+            position: absolute; top: -16px; left: -2px;
+            font-size: 10px; padding: 1px 6px; border-radius: 4px 4px 0 0;
+            font-weight: 700; color: #fff; white-space: nowrap;
+            display: flex; align-items: center; gap: 4px;
+            box-shadow: 0 -2px 6px rgba(0,0,0,0.1);
+            background: #111827; 
+        }
+        
+        /* Table Label Distinction */
+        .aw-area.type-table .aw-area-badge {
+            background: #2563eb !important;
+            transform: scale(1.1);
+            transform-origin: bottom left;
+            z-index: 20;
+        }
+        .type-text .aw-area-badge    { background: #16a34a; }
+        .type-table .aw-area-badge   { background: #2563eb; }
+        .type-image .aw-area-badge   { background: #dc2626; }
+        .order-num { background: rgba(255,255,255,0.25); padding: 0 3px; border-radius: 2px; }
+
+        /* ── Editor blocks (right pane, absolutely positioned) ── */
+        .aw-block {
+            position: absolute;
+            border: 1px solid transparent;
+            cursor: auto; /* Default cursor for editing */
+            padding: 0 2px;
+            box-sizing: border-box;
+            line-height: 1.25;
+            outline: none;
+            transition: border-color 0.2s, background 0.2s;
+        }
+        .aw-block:hover { border-color: #3b82f6; background: rgba(59, 130, 246, 0.05); }
+        .aw-block.highlighted { outline: 3px solid #fbd38d !important; z-index: 50 !important; border-color: #f6ad55; }
+        
+        /* Graphical Line Styles */
+        .aw-block.type-line { border: none !important; border-top: 4px solid #000 !important; cursor: move !important; background: transparent !important; }
+        .aw-block.type-double_line { border: none !important; border-top: 6px double #000 !important; cursor: move !important; background: transparent !important; }
+        .aw-block.type-underline { border: none !important; border-bottom: 2px solid #000 !important; cursor: move !important; background: transparent !important; }
+        .aw-block.type-line:hover, .aw-block.type-double_line:hover, .aw-block.type-underline:hover { background: rgba(37,99,235,0.05) !important; outline: 1px dashed #3b82f6; }
+        
+        /* Resize handles */
+        .aw-block-resizer { 
+            position: absolute; bottom: -5px; right: -5px; width: 12px; height: 12px; 
+            background: #fff; border: 2px solid #2563eb; cursor: nwse-resize; 
+            z-index: 100; border-radius: 50%; box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            transition: transform 0.2s;
+        }
+        .aw-block-resizer:hover { transform: scale(1.2); }
+        
+        .aw-drag-handle { 
+            position: absolute; top: -18px; left: 0; height: 18px; 
+            background: #2563eb; color: white; cursor: move; padding: 0 6px; 
+            display: none; align-items: center; border-radius: 4px 4px 0 0; 
+            font-size: 10px; z-index: 11; box-shadow: 0 -2px 8px rgba(37,99,235,0.2);
+        }
+        .aw-block:hover .aw-drag-handle, .aw-table-wrap:hover .aw-drag-handle, .aw-block-image:hover .aw-drag-handle { display: flex; }
+        .aw-block:hover { border-color: #2563eb; background: rgba(37,99,235,0.04); z-index: 40; }
+        .aw-block:hover .aw-block-resizer { opacity: 1; }
+        
+        .aw-table-wrap { 
+            position: absolute; 
+            border: 1px solid #93c5fd; 
+            background: #fff; 
+            z-index: 10; 
+            box-sizing: border-box;
+            transition: box-shadow 0.2s;
+        }
+        .aw-table-wrap:hover { box-shadow: 0 0 0 3px #2563eb; }
+        .aw-table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            font-family: inherit; 
+            table-layout: fixed; 
+            border: 2px solid #2563eb; /* Strong outer border */
+        }
+        .aw-table td { 
+            border: 1px solid #2563eb; /* Consistent grid lines */
+            padding: 4px; 
+            overflow: hidden; 
+            text-overflow: ellipsis; 
+            outline: none; 
+            transition: 0.2s; 
+            vertical-align: top; 
+        }
+        .aw-table tr:first-child td { border-top: none; }
+        .aw-table td:first-child { border-left: none; }
+        .aw-table td:focus { background: #eff6ff; box-shadow: inset 0 0 0 2px #3b82f6; }
+        
+        /* Table Tools Overlay (Right Pane) - Unified Style */
+        .aw-table-tools {
+            position: absolute; top: 0; right: 0; display: none;
+            background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(8px);
+            border-radius: 0 0 0 8px; padding: 4px 8px;
+            gap: 12px; z-index: 1000; color: #fff; font-size: 14px;
+            white-space: nowrap; border-left: 1px solid rgba(255,255,255,0.2);
+            border-bottom: 1px solid rgba(255,255,255,0.2);
+            box-shadow: -4px 4px 12px rgba(0,0,0,0.2);
+        }
+        .aw-table-wrap:hover .aw-table-tools { display: flex; align-items: center; }
+        .aw-table-tools span { cursor: pointer; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 4px; transition: 0.2s; color: #cbd5e1; }
+        .aw-table-tools span:hover { background: rgba(255,255,255,0.1); color: #fff; }
+        .aw-table-tools span.danger:hover { color: #f87171; }
+        .aw-table-tools span.plus:hover { color: #60a5fa; }
+
+
+        /* Consolidated with .aw-table-wrap above */
+        .aw-table { width: 100%; height: 100%; border-collapse: collapse; border: 1px solid #cbd5e1; background: #fff; }
+        .aw-table td, .aw-table th {
+            border: 1px solid #bfdbfe; /* Unified Blue Grid */
+            padding: 4px 6px;
+            font-size: 11px;
+            font-family: serif;
+            vertical-align: top;
+            outline: none;
+            cursor: text;
+        }
+        .aw-table td:focus { background: #eff6ff; outline: 1px solid #3b82f6; }
+
+        /* ── Footer ───────────────────────────────────────────── */
+        .aw-footer {
+            height: 26px;
+            background: #f1f5f9;
+            border-top: 1px solid #d0d8e4;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 14px;
+            font-size: 11px;
+            color: #64748b;
+            flex-shrink: 0;
+        }
+        .aw-footer-grp { display: flex; align-items: center; gap: 12px; }
+        .aw-footer-sep { width: 1px; height: 14px; background: #cbd5e1; }
+
+        /* ── Loading overlay ──────────────────────────────────── */
+        .aw-loading {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: rgba(255,255,255,0.85);
+            z-index: 50;
+            gap: 12px;
+        }
+        .aw-spinner {
+            width: 36px;
+            height: 36px;
+            border: 4px solid #d0d8e4;
+            border-top-color: #2563eb;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ── Submit modal ─────────────────────────────────────── */
+        .aw-modal-overlay {
+            display: none;
+            position: fixed; inset: 0;
+            background: rgba(0,0,0,0.55);
+            z-index: 9000;
+            align-items: center;
+            justify-content: center;
+        }
+        .aw-modal-overlay.open { display: flex; }
+        .aw-modal-card {
+            background: white;
+            border-radius: 10px;
+            padding: 28px 32px;
+            width: 420px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        .aw-modal-title { font-size: 18px; font-weight: 700; color: #1e293b; margin-bottom: 8px; }
+        .aw-modal-body  { font-size: 13px; color: #64748b; line-height: 1.6; margin-bottom: 24px; }
+        .aw-modal-actions { display: flex; gap: 12px; justify-content: flex-end; }
+        .aw-btn { padding: 8px 18px; border-radius: 6px; font-size: 13px; font-weight: 600; border: none; cursor: pointer; transition: background 0.15s; }
+        .aw-btn-secondary { background: #e2e8f0; color: #334155; }
+        .aw-btn-secondary:hover { background: #cbd5e1; }
+        .aw-btn-primary  { background: #2563eb; color: #fff; }
+        .aw-btn-primary:hover  { background: #1d4ed8; }
+        /* Context Menu for Table Cells */
+        #aw-context-menu {
+            position: fixed; display: none; background: #fff; border: 1px solid #cbd5e1;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15); border-radius: 6px; z-index: 10000;
+            padding: 4px 0; min-width: 150px;
+        }
+        .ctx-item {
+            padding: 8px 12px; font-size: 12px; color: #334155; cursor: pointer;
+            display: flex; align-items: center; gap: 10px; transition: background 0.1s;
+        }
+        .ctx-item:hover { background: #f1f5f9; color: #2563eb; }
+        .ctx-item.danger:hover { background: #fee2e2; color: #dc2626; }
+        .ctx-item i { width: 14px; text-align: center; }
+        .ctx-sep { height: 1px; background: #e2e8f0; margin: 4px 0; }
+    </style>
+</head>
+<body>
+
+<!-- ── Top title bar ─────────────────────────────────────────── -->
+<div class="aw-top-bar">
+    <span class="doc-title">
+        <i class="fas fa-file-pdf" style="color:#90b4e8;margin-right:6px;"></i>
+        {{ doc_ref }} &mdash; OCR Workspace
+    </span>
+    <span id="save-status-text" class="doc-title" style="flex:none;color:#a0c0e8;"></span>
+    <span class="status-pill {% if is_readonly %}readonly{% else %}editable{% endif %}">
+        {% if is_readonly %}Read-Only{% else %}Editing{% endif %}
+    </span>
+    <button class="close-btn" title="Back to dashboard"
+        data-href="{% if request.user.role == 'ADMIN' %}/admin/documents/{% else %}/resource/fetch/{% endif %}"
+        onclick="window.location.href=this.dataset.href;">
+        <i class="fas fa-times"></i>
+    </button>
+</div>
+
+<div class="aw-ribbon">
+    <!-- Row 1: Primary Logic & Navigation -->
+    <div class="ribbon-row">
+        <!-- File Group -->
+        <div class="rbn-group">
+            <div class="rbn-group-tools">
+                <button class="rbn-btn" id="btn-save" {% if is_readonly %}disabled{% endif %} title="Save All (Ctrl+S)">
+                    <i class="fas fa-save"></i>
+                    <span class="rbn-label">Save</span>
+                </button>
+                <div class="rbn-sep"></div>
+                <button class="rbn-btn" id="btn-undo" title="Undo (Ctrl+Z)" onclick="window.aw_ws && window.aw_ws._undo()" disabled>
+                    <i class="fas fa-undo"></i>
+                </button>
+                <button class="rbn-btn" id="btn-redo" title="Redo (Ctrl+Y)" onclick="window.aw_ws && window.aw_ws._redo()" disabled>
+                    <i class="fas fa-redo"></i>
+                </button>
+            </div>
+            <div class="rbn-group-label">File</div>
+        </div>
+
+        <!-- Recognition Group -->
+        <div class="rbn-group">
+            <div class="rbn-group-tools">
+                <button class="rbn-btn" id="btn-analyze" title="Fast Layout Detection (Geometric Boxes Only)">
+                    <i class="fas fa-magic"></i>
+                    <span class="rbn-label">Analyze Layout</span>
+                </button>
+                <button class="rbn-btn accent" id="btn-recognize" title="High-Fidelity OCR & Layout Reconstruction (Pixel-Perfect)">
+                    <i class="fas fa-eye"></i>
+                    <span class="rbn-label">Run High-Fi OCR</span>
+                </button>
+            </div>
+            <div class="rbn-group-label">Processing</div>
+        </div>
+
+        <!-- Export Group -->
+        <div class="rbn-group">
+            <div class="rbn-group-tools">
+                <button class="rbn-btn accent" id="btn-export" title="Download Word Editable Copy (.docx)">
+                    <i class="fas fa-file-word"></i>
+                    <span class="rbn-label">Editable Copy</span>
+                </button>
+                <button class="rbn-btn" id="btn-copy-doc" title="Copy text to clipboard">
+                    <i class="fas fa-copy"></i>
+                    <span class="rbn-label">Copy Doc</span>
+                </button>
+            </div>
+            <div class="rbn-group-label">Export</div>
+        </div>
+
+        <div style="flex: 1;"></div>
+
+        <!-- Verification Group -->
+        <div class="rbn-group">
+            <div class="rbn-group-tools">
+                <button class="rbn-btn accent" id="btn-verify" title="Start Verification Wizard">
+                    <i class="fas fa-check-circle"></i>
+                    <span class="rbn-label">Verify</span>
+                </button>
+            </div>
+            <div class="rbn-group-label">Review</div>
+        </div>
+
+        <!-- Navigation Group -->
+        <div class="rbn-group">
+            <div class="rbn-group-tools">
+                <button class="rbn-tool-btn" id="btn-zoom-out" title="Zoom Out"><i class="fas fa-minus"></i></button>
+                <span id="zoom-label" style="font-size:11px;font-weight:700;color:#64748b;min-width:34px;text-align:center;">100%</span>
+                <button class="rbn-tool-btn" id="btn-zoom-in" title="Zoom In"><i class="fas fa-plus"></i></button>
+                <div class="rbn-sep"></div>
+                <button class="rbn-tool-btn active" id="btn-dual" title="Dual View"><i class="fas fa-columns"></i></button>
+                <button class="rbn-tool-btn" id="btn-single" title="Image Only"><i class="fas fa-image"></i></button>
+            </div>
+            <div class="rbn-group-label">View</div>
+        </div>
+    </div>
+
+    <!-- Row 2: Drawing & Formatting -->
+    <div class="ribbon-row" style="border-top: 1px solid #e2e8f0; padding-top: 2px;">
+        <!-- Drawing Group -->
+        <div class="rbn-group">
+            <div class="rbn-group-tools">
+                <button class="rbn-btn active" data-tool="select" title="Select Tool">
+                    <i class="fas fa-mouse-pointer"></i>
+                </button>
+                <button class="rbn-btn" data-tool="text" title="New Text Area">
+                    <i class="fas fa-font" style="color:#10b981;"></i>
+                </button>
+                <button class="rbn-btn" data-tool="table" title="New Table Area">
+                    <i class="fas fa-table" style="color:#3b82f6;"></i>
+                </button>
+                <button class="rbn-btn" data-tool="image" title="New Image Area">
+                    <i class="fas fa-image" style="color:#ef4444;"></i>
+                </button>
+                <div class="rbn-sep"></div>
+                <button class="rbn-btn" data-tool="line" title="Draw Horizontal Line">
+                    <i class="fas fa-minus" style="color:#8b5cf6;"></i>
+                </button>
+                <button class="rbn-btn" data-tool="double_line" title="Draw Double Line">
+                    <i class="fas fa-equals" style="color:#8b5cf6;"></i>
+                </button>
+                <button class="rbn-btn" data-tool="underline" title="Draw Underline">
+                    <i class="fas fa-underline" style="color:#f59e0b;"></i>
+                </button>
+            </div>
+            <div class="rbn-group-label">Creation</div>
+        </div>
+
+        <!-- Table Operations Group (Dynamic) -->
+        <div class="rbn-group" id="rbn-table-ops" style="display: none;">
+            <div class="rbn-group-tools">
+                <button class="rbn-btn" id="btn-add-row" title="Add Row Below">
+                    <i class="fas fa-plus-square" style="color:#10b981;"></i>
+                    <span class="rbn-label">Add Row</span>
+                </button>
+                <button class="rbn-btn" id="btn-add-col" title="Add Column Right">
+                    <i class="fas fa-plus-square" style="color:#3b82f6;"></i>
+                    <span class="rbn-label">Add Col</span>
+                </button>
+                <div class="rbn-sep"></div>
+                <button class="rbn-btn" id="btn-del-row" title="Delete Selected Row">
+                    <i class="fas fa-minus-square" style="color:#ef4444;"></i>
+                    <span class="rbn-label">Del Row</span>
+                </button>
+                <button class="rbn-btn" id="btn-del-col" title="Delete Selected Column">
+                    <i class="fas fa-minus-square" style="color:#ef4444;"></i>
+                    <span class="rbn-label">Del Col</span>
+                </button>
+            </div>
+            <div class="rbn-group-label">Table Tools</div>
+        </div>
+
+        <div style="flex: 1;"></div>
+
+        <!-- Formatting Group -->
+        <div class="rbn-group" id="fmt-group">
+            <div class="rbn-group-tools">
+                <select class="rbn-select" id="fmt-style" title="Text Style" style="width: 90px;">
+                    <option value="text">Body Text</option>
+                    <option value="header">Heading 1</option>
+                    <option value="header">Heading 2</option>
+                    <option value="header">Heading 3</option>
+                    <option value="caption">Caption</option>
+                    <option value="footer">Footer</option>
+                    <option value="header">Title</option>
+                    <option value="caption">Subtitle</option>
+                    <option value="text">Note / Aside</option>
+                    <option value="text">Address</option>
+                </select>
+                <select class="rbn-select" id="fmt-font" style="width: 120px;" title="Font Family">
+                    <option value="Arial">Arial</option>
+                    <option value="Times New Roman">Times New Roman</option>
+                    <option value="Courier New">Courier New</option>
+                    <option value="Helvetica">Helvetica</option>
+                    <option value="Georgia">Georgia</option>
+                    <option value="Verdana">Verdana</option>
+                    <option value="Trebuchet MS">Trebuchet MS</option>
+                    <option value="Impact">Impact</option>
+                    <option value="Roboto">Roboto</option>
+                    <option value="Open Sans">Open Sans</option>
+                    <option value="Lato">Lato</option>
+                    <option value="Montserrat">Montserrat</option>
+                    <option value="Oswald">Oswald</option>
+                    <option value="Source Sans Pro">Source Sans Pro</option>
+                    <option value="Slabo 27px">Slabo 27px</option>
+                    <option value="Raleway">Raleway</option>
+                    <option value="PT Sans">PT Sans</option>
+                    <option value="Merriweather">Merriweather</option>
+                    <option value="Ubuntu">Ubuntu</option>
+                    <option value="Playfair Display">Playfair Display</option>
+                    <option value="Nunito">Nunito</option>
+                    <option value="Muli">Muli</option>
+                    <option value="Titillium Web">Titillium Web</option>
+                    <option value="Assistant">Assistant</option>
+                    <option value="Inconsolata">Inconsolata</option>
+                    <option value="Anton">Anton</option>
+                    <option value="Josefin Sans">Josefin Sans</option>
+                    <option value="Libre Baskerville">Libre Baskerville</option>
+                    <option value="Arvo">Arvo</option>
+                    <option value="Kanit">Kanit</option>
+                </select>
+                <select class="rbn-select" id="fmt-size" style="width: 60px;" title="Font Size">
+                    <option value="6">6</option>
+                    <option value="7">7</option>
+                    <option value="8">8</option>
+                    <option value="9">9</option>
+                    <option value="10">10</option>
+                    <option value="11">11</option>
+                    <option value="12">12</option>
+                    <option value="13">13</option>
+                    <option value="14">14</option>
+                    <option value="15">15</option>
+                    <option value="16">16</option>
+                    <option value="17">17</option>
+                    <option value="18">18</option>
+                    <option value="19">19</option>
+                    <option value="20">20</option>
+                    <option value="21">21</option>
+                    <option value="22">22</option>
+                    <option value="24">24</option>
+                    <option value="26">26</option>
+                    <option value="28">28</option>
+                    <option value="30">30</option>
+                    <option value="32">32</option>
+                    <option value="34">34</option>
+                    <option value="36">36</option>
+                    <option value="40">40</option>
+                    <option value="44">44</option>
+                    <option value="48">48</option>
+                    <option value="54">54</option>
+                    <option value="60">60</option>
+                    <option value="72">72</option>
+                </select>
+                <div class="rbn-sep"></div>
+                <button class="rbn-tool-btn" id="fmt-bold" title="Bold"><b>B</b></button>
+                <button class="rbn-tool-btn" id="fmt-italic" title="Italic"><i>I</i></button>
+                <button class="rbn-tool-btn" id="fmt-underline" title="Underline"><u>U</u></button>
+                <div class="rbn-sep"></div>
+                <button class="rbn-tool-btn" id="fmt-super" title="Superscript">x²</button>
+                <button class="rbn-tool-btn" id="fmt-sub" title="Subscript">x₁</button>
+                <div class="rbn-sep"></div>
+                <button class="rbn-tool-btn" data-align="left" title="Align Left"><i class="fas fa-align-left"></i></button>
+                <button class="rbn-tool-btn" data-align="center" title="Align Center"><i class="fas fa-align-center"></i></button>
+                <button class="rbn-tool-btn" data-align="right" title="Align Right"><i class="fas fa-align-right"></i></button>
+                <button class="rbn-tool-btn" data-align="justify" title="Justify"><i class="fas fa-align-justify"></i></button>
+                <div class="rbn-sep"></div>
+                <button class="rbn-tool-btn" id="fmt-bullets" title="Bullets"><i class="fas fa-list-ul"></i></button>
+                <button class="rbn-tool-btn" id="fmt-indent" title="Indent"><i class="fas fa-indent"></i></button>
+            </div>
+            <div class="rbn-group-label" id="fmt-label">Text Properties</div>
+        </div>
+
+        <div style="flex: 1;"></div>
+
+        <!-- Final Submit -->
+        <div class="rbn-group">
+            <div class="rbn-group-tools">
+                <button class="rbn-btn" id="btn-submit" {% if is_readonly %}disabled{% endif %} style="background:#10b981; color:#fff; border-color:#059669; padding: 0 12px; height: 28px;" title="Finalize Assignment">
+                    <i class="fas fa-check-double"></i>
+                    <span class="rbn-label">Submit</span>
+                </button>
+            </div>
+            <div class="rbn-group-label">Finish</div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Body ───────────────────────────────────────────────────── -->
+<div class="aw-body" id="aw-body">
+    
+    <!-- Thumbnail sidebar -->
+    <div class="aw-thumbs" id="aw-thumbs">
+        <div class="aw-thumbs-title"><i class="fas fa-th-list me-1"></i> Pages</div>
+        <div id="thumb-list"></div>
+    </div>
+
+    <!-- Main viewport (image pane + divider + editor pane) -->
+    <div class="aw-viewport" id="aw-viewport">
+        
+        <!-- Original document pane -->
+        <div class="aw-pane" id="img-pane" style="flex: 0 0 50%;">
+            <div class="aw-pane-header">
+                <span><i class="fas fa-file-image" style="margin-right:6px;"></i>Original Document</span>
+                <span id="page-indicator">Page 1 of 1</span>
+            </div>
+            <div class="aw-pane-scroll" id="img-pane-scroll">
+                <div id="img-loading" class="aw-loading" style="position:static;background:none;color:#a0b0c0;">
+                    <div class="aw-spinner"></div>
+                    <span style="font-size:12px;">Loading PDF…</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Resize divider -->
+        <div class="aw-divider" id="aw-divider">
+            <div style="margin:50% auto;width:3px;height:30px;background:#b0bec5;border-radius:2px;"></div>
+        </div>
+
+        <!-- OCR editor pane -->
+        <div class="aw-editor-pane" id="editor-pane">
+            <div class="aw-pane-header">
+                <span><i class="fas fa-edit" style="margin-right:6px;"></i>OCR Output</span>
+                <span style="font-size:10px;font-weight:400;color:#718096;">Click blocks to edit</span>
+            </div>
+            <div class="aw-editor-scroll" id="editor-pane-scroll">
+                <div style="color:#718096;font-size:13px;">Loading text blocks…</div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<!-- ── Footer ────────────────────────────────────────────────── -->
+<div class="aw-footer">
+    <div class="aw-footer-grp">
+        <span id="footer-page">Page: 1 / 1</span>
+        <div class="aw-footer-sep"></div>
+        <span id="footer-blocks">Blocks: 0</span>
+        <div class="aw-footer-sep"></div>
+        <span id="footer-status">Ready</span>
+        <div class="aw-footer-sep"></div>
+        <span id="footer-provider" style="color: #64748b; font-weight: 600;">OCR: -</span>
+
+    </div>
+    <div class="aw-footer-grp">
+        <span>Language: English</span>
+        <div class="aw-footer-sep"></div>
+        <span id="footer-coords">X: 0, Y: 0</span>
+    </div>
+</div>
+
+<div id="aw-context-menu"></div>
+
+<!-- ── Confirm modal ───────────────────────────────────────────── -->
+<div class="aw-modal-overlay" id="confirm-modal">
+    <div class="aw-modal-card">
+        <div class="aw-modal-title" id="confirm-modal-title">Confirm Action</div>
+        <div class="aw-modal-body" id="confirm-modal-body">Are you sure?</div>
+        <div class="aw-modal-actions">
+            <button class="aw-btn aw-btn-secondary" id="confirm-modal-cancel">Cancel</button>
+            <button class="aw-btn aw-btn-primary" id="confirm-modal-ok">Confirm</button>
+        </div>
+    </div>
+</div>
+
+<!-- ── Scripts ────────────────────────────────────────────────── -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js" crossorigin="anonymous"></script>
+<script>
+// ─── Config injected from Django ─────────────────────────────
+const AWConfig = {
+    docRef:     "{{ doc_ref }}",
+    pageNumber: "{{ page_number }}",
+    isReadonly: "{{ is_readonly|default:'false'|lower }}" === "true",
+    role:       "{{ request.user.role }}",
+    csrfToken:  "{{ csrf_token }}",
+    wsProtocol: window.location.protocol === 'https:' ? 'wss://' : 'ws://',
+};
+
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+// Suppress non-critical warnings in console (like TT: undefined function)
+pdfjsLib.verbosity = 0; 
+
+// ─── AbbyyWorkspace ───────────────────────────────────────────
+// "Analysis queued" means the background OCR/Layout task has been submitted to the server queue.
+class AbbyyWorkspace {
+    constructor(cfg) {
+        window.aw_ws = this; // Global reference for toolkit buttons
+        this.cfg   = cfg;
+        this.pages = [];
+        this.curPage = 0;
+        this.zoom  = 1.0;
+        this.tool  = 'select';
+        this.isShiftDown = false;
+        this.undoStack = [];
+        this.redoStack = [];
+        this.historyLimit = 50;
+        this.socket = null;
+        this.pendingSaves = {};
+        this.tableSaves   = {};
+        this.dualView = true;
+        this.selectedBlockId = null;
+        this.selectedBlockData = null;
+        this.selectedCellContext = null; // { tableRef, row, col, tblObj }
+        
+        // Undo / Redo State
+        this.history = {};
+        this.historyPtr = {};
+        this.isTimeTraveling = false;
+
+        this.els = {
+            thumbList:   document.getElementById('thumb-list'),
+            imgScroll:   document.getElementById('img-pane-scroll'),
+            editorScroll:document.getElementById('editor-pane-scroll'),
+            pageInd:     document.getElementById('page-indicator'),
+            footerPage:  document.getElementById('footer-page'),
+            footerBlocks:document.getElementById('footer-blocks'),
+            footerStatus:document.getElementById('footer-status'),
+            saveStatusText: document.getElementById('save-status-text'),
+            zoomLabel:   document.getElementById('zoom-label'),
+            imgPane:     document.getElementById('img-pane'),
+            editorPane:  document.getElementById('editor-pane'),
+            divider:     document.getElementById('aw-divider'),
+            footerProvider: document.getElementById('footer-provider'),
+            btnAnalyze:      document.getElementById('btn-analyze'),
+            btnRecognize:    document.getElementById('btn-recognize'),
+            btnExport:       document.getElementById('btn-export'),
+        };
+
+    }
+
+    // ── Init ─────────────────────────────────────────────────
+    async init() {
+        this._bindToolbar();
+        this._bindDivider();
+        this._bindScrollSync();
+        this._bindFocusScrollFreeze();
+        this._connectWebSocket();
+        await this._loadData();
+        this._renderThumbs();
+        await this._loadPage(0);
+        this._bindFormattingTools(); // New
+        this._startAutoSave();
+        this._updateHistoryButtons();
+    }
+
+    // ── Synchronized scrolling ────────────────────────────────
+    _bindScrollSync() {
+        let syncingFromImg    = false;
+        let syncingFromEditor = false;
+        // Guard: prevents programmatic scrolls from echo-triggering the other pane
+        this._scrollingProgrammatically = false;
+
+        this.els.imgScroll.addEventListener('scroll', () => {
+            if (syncingFromEditor || this._scrollingProgrammatically) return;
+            syncingFromImg = true;
+            const ratio = this.els.imgScroll.scrollTop / Math.max(1,
+                this.els.imgScroll.scrollHeight - this.els.imgScroll.clientHeight);
+            this.els.editorScroll.scrollTop = ratio *
+                Math.max(1, this.els.editorScroll.scrollHeight - this.els.editorScroll.clientHeight);
+            syncingFromImg = false;
+        });
+
+        this.els.editorScroll.addEventListener('scroll', () => {
+            if (syncingFromImg || this._scrollingProgrammatically) return;
+            syncingFromEditor = true;
+            const ratio = this.els.editorScroll.scrollTop / Math.max(1,
+                this.els.editorScroll.scrollHeight - this.els.editorScroll.clientHeight);
+            this.els.imgScroll.scrollTop = ratio *
+                Math.max(1, this.els.imgScroll.scrollHeight - this.els.imgScroll.clientHeight);
+            syncingFromEditor = false;
+        });
+    }
+
+    // Prevent Safari's (and Chrome's) focus autoscroll from jumping the editor pane.
+    //
+    // WHY this approach works cross-browser:
+    //   rAF-based fixes failed in Safari because Safari fires its focus autoscroll at
+    //   an unpredictable time that can't be reliably bracketed with requestAnimationFrame.
+    //
+    //   This uses a SCROLL LOCK: on mousedown, we save scrollTop and lock the position.
+    //   Any scroll that fires within 300ms of a mousedown is immediately reverted.
+    //   Deliberate user scrolling (wheel/touch) releases the lock instantly so it
+    //   never interferes with intentional navigation. Scrollbar drags never trigger
+    //   our mousedown listener (they go through the browser engine), so they work too.
+    _bindFocusScrollFreeze() {
+        const container = this.els.editorScroll;
+        let scrollLock  = null;   // null = not locked; number = locked scrollTop value
+        let lockHandle  = null;
+
+        const unlock = () => {
+            scrollLock = null;
+            if (lockHandle) { clearTimeout(lockHandle); lockHandle = null; }
+        };
+
+        // Deliberate user scroll (wheel or touch) always releases the lock immediately
+        container.addEventListener('wheel',      unlock, { capture: true, passive: true });
+        container.addEventListener('touchstart', unlock, { capture: true, passive: true });
+
+        // On mousedown (clicking a cell/block): lock the current scroll for 300ms
+        container.addEventListener('mousedown', () => {
+            if (this._scrollingProgrammatically) return; // Don't lock during programmatic scrolls
+            scrollLock = container.scrollTop;
+            if (lockHandle) clearTimeout(lockHandle);
+            lockHandle = setTimeout(unlock, 300);
+        }, true);
+
+        // During the lock window, revert any unsolicited scroll immediately
+        container.addEventListener('scroll', () => {
+            if (scrollLock !== null && !this._scrollingProgrammatically) {
+                container.scrollTop = scrollLock;
+            }
+        }, true);
+    }
+
+    // Scroll the editor container to bring a block into view — never touches body scroll
+    _scrollEditorTo(blockEl) {
+        if (!blockEl) return;
+        this._scrollingProgrammatically = true;
+        const container = this.els.editorScroll;
+        const elTop    = blockEl.offsetTop;
+        const elBottom = elTop + blockEl.offsetHeight;
+        const cTop     = container.scrollTop;
+        const cBottom  = cTop + container.clientHeight;
+        if (elTop < cTop + 20) {
+            container.scrollTop = Math.max(0, elTop - 20);
+        } else if (elBottom > cBottom - 20) {
+            container.scrollTop = elBottom - container.clientHeight + 20;
+        }
+        // Release guard after scroll events have propagated
+        requestAnimationFrame(() => { this._scrollingProgrammatically = false; });
+    }
+
+    // ── Data loading ──────────────────────────────────────────
+    async _loadData() {
+        try {
+            this._setStatus('Loading document data…');
+            const resp = await fetch(`/api/v1/processing/workspace/content/${this.cfg.docRef}/${this.cfg.pageNumber}/${window.location.search}`);
+            if (!resp.ok) {
+                const errText = await resp.text();
+                throw new Error(`HTTP ${resp.status}: ${errText.slice(0,200)}`);
+            }
+            const data = await resp.json();
+            this.pages = data.pages || [];
+            this.docInfo = data.document || {};
+
+            // Each page has its own split PDF in image_url.
+            // We DON'T load the full document PDF here — we load per-page in _renderImagePane.
+            this._setStatus(`Loaded ${this.pages.length} page(s)`);
+            
+            // Push layout snapshot to history array for Undo/Redo tracking
+            if (!this.isTimeTraveling && this.pages[this.curPage]) {
+                this._pushHistory(this.curPage, this.pages[this.curPage]);
+            }
+            
+            // Mark assignment as IN_PROGRESS
+            this._startProcessing();
+        } catch (e) {
+            console.error('[AW] Data load error:', e);
+            this._setStatus('Error loading data: ' + e.message, 'error');
+        }
+    }
+
+    async _startProcessing() {
+        try {
+            await fetch(`/api/v1/processing/workspace/content/${this.cfg.docRef}/${this.cfg.pageNumber}/start/`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': this.cfg.csrfToken },
+                body: '{}'
+            });
+        } catch(e) { /* silently ignore — non-critical */ }
+    }
+
+    // ── Undo / Redo engine ───────────────────────────────────
+    _pushHistory(pageNum, pageData) {
+        if (this.isTimeTraveling) return;
+        if (!this.history[pageNum]) {
+            this.history[pageNum] = [];
+            this.historyPtr[pageNum] = -1;
+        }
+        
+        const ptr = this.historyPtr[pageNum];
+        const snapshot = JSON.parse(JSON.stringify(pageData));
+        
+        // Avoid pushing exact duplicate states visually
+        if (ptr >= 0 && JSON.stringify(this.history[pageNum][ptr]) === JSON.stringify(snapshot)) {
+            return;
+        }
+
+        if (ptr < this.history[pageNum].length - 1) {
+            this.history[pageNum] = this.history[pageNum].slice(0, ptr + 1);
+        }
+        
+        // Rolling array capped at 30 snapshots
+        if (this.history[pageNum].length >= 30) {
+            this.history[pageNum].shift();
+            this.historyPtr[pageNum]--;
+        }
+        
+        this.history[pageNum].push(snapshot);
+        this.historyPtr[pageNum] = this.history[pageNum].length - 1;
+        this._updateUndoButtons();
+    }
+
+    _updateUndoButtons() {
+        const ptr = this.historyPtr[this.curPage];
+        const stack = this.history[this.curPage];
+        
+        const btnUndo = document.getElementById('btn-undo');
+        const btnRedo = document.getElementById('btn-redo');
+        if (btnUndo) btnUndo.disabled = (!stack || ptr <= 0);
+        if (btnRedo) btnRedo.disabled = (!stack || ptr >= stack.length - 1);
+    }
+
+    async _undo() {
+        if (this.cfg.isReadonly) return;
+        const ptr = this.historyPtr[this.curPage];
+        if (!this.history[this.curPage] || ptr <= 0) return;
+        
+        this.historyPtr[this.curPage]--;
+        await this._applySnapshot(this.history[this.curPage][this.historyPtr[this.curPage]]);
+    }
+
+    async _redo() {
+        if (this.cfg.isReadonly) return;
+        const ptr = this.historyPtr[this.curPage];
+        const stack = this.history[this.curPage];
+        if (!stack || ptr >= stack.length - 1) return;
+        
+        this.historyPtr[this.curPage]++;
+        await this._applySnapshot(stack[this.historyPtr[this.curPage]]);
+    }
+
+    async _applySnapshot(snapshot) {
+        if (!snapshot) return;
+        this.isTimeTraveling = true;
+        this._setStatus('Restoring past state...');
+        try {
+            const res = await fetch(`/api/v1/processing/workspace/content/${this.cfg.docRef}/${snapshot.page_number}/sync/`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': this.cfg.csrfToken },
+                body: JSON.stringify(snapshot)
+            });
+            if (res.ok) {
+                await this._loadData();
+                this._loadPage(this.curPage);
+                this._setStatus('Time state restored!');
+            } else {
+                this._setStatus('Failed to Time Travel', 'error');
+            }
+        } catch(e) {
+            this._setStatus('Error restoring state', 'error');
+        } finally {
+            this.isTimeTraveling = false;
+            this._updateUndoButtons();
+        }
+    }
+
+    // ── Thumbnail rendering ───────────────────────────────────
+    _renderThumbs() {
+        this.els.thumbList.innerHTML = '';
+        this.pages.forEach((p, idx) => {
+            const item = document.createElement('div');
+            item.className = 'aw-thumb-item' + (idx === 0 ? ' active' : '');
+            item.dataset.idx = idx;
+
+            const canvas = document.createElement('canvas');
+            canvas.className = 'aw-thumb-canvas';
+            const label = document.createElement('div');
+            label.className = 'aw-thumb-label';
+            label.textContent = 'Page ' + p.page_number;
+
+            item.appendChild(canvas);
+            item.appendChild(label);
+            item.onclick = () => this._loadPage(idx);
+            this.els.thumbList.appendChild(item);
+
+            // Render thumbnail using the split page PDF
+            this._renderThumbCanvas(canvas, p.page_number, p.image_url);
+        });
+    }
+
+    async _renderThumbCanvas(canvas, pageNum, imageUrl) {
+        try {
+            if (imageUrl) {
+                // Use the page's own split PDF
+                const doc = await pdfjsLib.getDocument(imageUrl).promise;
+                const pg  = await doc.getPage(1); // split PDFs are always 1 page
+                const vp  = pg.getViewport({ scale: 110 / pg.view[2] });
+                canvas.width  = vp.width;
+                canvas.height = vp.height;
+                await pg.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+            }
+        } catch (e) {
+            // Silently fail thumbnails
+        }
+    }
+
+    // ── Page loading ──────────────────────────────────────────
+    async _loadPage(idx) {
+        // Save scroll position for same-page refreshes (e.g. after table row/col edits)
+        // so the view doesn't jump back to the top on every structured update.
+        const isSamePage = (idx === this.curPage);
+        const savedImgScroll    = isSamePage ? this.els.imgScroll.scrollTop    : 0;
+        const savedEditorScroll = isSamePage ? this.els.editorScroll.scrollTop : 0;
+
+        this.curPage = idx;
+        const p = this.pages[idx];
+        if (!p) return;
+
+        // Update thumbnails
+        document.querySelectorAll('.aw-thumb-item').forEach((el, i) => {
+            el.classList.toggle('active', i === idx);
+        });
+
+        // Update URL to match current page (1-indexed for backend compatibility)
+        const newUrl = window.location.pathname.replace(/\/workspace\/([^/]+)\/\d+\//, `/workspace/$1/${p.page_number}/`);
+        if (window.location.pathname !== newUrl) {
+            window.history.pushState({ page: p.page_number }, '', newUrl + window.location.search);
+        }
+
+        const total = this.pages.length;
+        this.els.pageInd.textContent    = `Page ${p.page_number} of ${total}`;
+        this.els.footerPage.textContent = `Page: ${idx + 1} / ${total}`;
+        this.els.footerBlocks.textContent = `Blocks: ${(p.blocks || []).length}`;
+
+        // Render both panes
+        await this._renderImagePane(p);
+        this._renderEditorPane(p);
+
+        // Restore scroll position after re-render (only for same-page refreshes)
+        if (isSamePage) {
+            this._scrollingProgrammatically = true;
+            this.els.imgScroll.scrollTop    = savedImgScroll;
+            this.els.editorScroll.scrollTop = savedEditorScroll;
+            requestAnimationFrame(() => { this._scrollingProgrammatically = false; });
+        }
+        
+        // Update Footer Metadata (Premium Visibility)
+        if (this.els.footerProvider) {
+            const provider = p.ocr_provider ? p.ocr_provider.toUpperCase() : 'NATIVE';
+            this.els.footerProvider.textContent = `OCR: ${provider}`;
+            this.els.footerProvider.style.color = (provider === 'ADOBE' || provider === 'AZURE') ? '#2563eb' : '#64748b';
+            this.els.footerProvider.title = `Source: ${provider}`;
+        }
+        
+        this._setStatus('Ready');
+    }
+
+    // ── Image pane ────────────────────────────────────────────
+    async _renderImagePane(pageData) {
+        const scroll = this.els.imgScroll;
+        scroll.innerHTML = '';
+
+        const container = document.createElement('div');
+        container.className = 'aw-page-container';
+
+        const canvas = document.createElement('canvas');
+        canvas.className = 'aw-page-canvas';
+        container.appendChild(canvas);
+
+        const areaLayer = document.createElement('div');
+        areaLayer.className = 'aw-area-layer';
+        container.appendChild(areaLayer);
+
+        // Loading spinner
+        const spin = document.createElement('div');
+        spin.className = 'aw-loading';
+        spin.innerHTML = '<div class="aw-spinner"></div><span style="font-size:11px;color:#64748b;">Rendering…</span>';
+        container.appendChild(spin);
+
+        scroll.appendChild(container);
+
+        try {
+            // Each page has its own single-page split PDF stored in image_url.
+            // Load it with pdf.js at page index 1 (it is always page 1 of the split file).
+            const pageUrl = pageData.image_url;
+            if (!pageUrl) {
+                spin.innerHTML = '<span style="color:#e74c3c;font-size:13px;">No page file available</span>';
+                return;
+            }
+
+            const pdfPage_doc = await pdfjsLib.getDocument(pageUrl).promise;
+            const pdfPage = await pdfPage_doc.getPage(1); // Always page 1 in split PDFs
+
+            const baseW = 780 * this.zoom;
+            const viewport = pdfPage.getViewport({ scale: baseW / pdfPage.view[2] });
+
+            canvas.width  = viewport.width;
+            canvas.height = viewport.height;
+            container.style.width  = viewport.width  + 'px';
+            container.style.height = viewport.height + 'px';
+
+            await pdfPage.render({
+                canvasContext: canvas.getContext('2d'),
+                viewport
+            }).promise;
+
+            spin.remove();
+
+            const pdfW = pageData.layout_data?.page_dims?.width  || pdfPage.view[2];
+            const pdfH = pageData.layout_data?.page_dims?.height || pdfPage.view[3];
+
+            // Draw OCR areas
+            this._drawAreas(areaLayer, pageData, viewport.width, viewport.height, pdfW, pdfH);
+
+            // Setup drawing
+            if (!this.cfg.isReadonly) {
+                this._setupDrawing(areaLayer, pageData, viewport.width, viewport.height, pdfW, pdfH);
+            }
+
+            // Track mouse coords
+            areaLayer.addEventListener('mousemove', (e) => {
+                const r = areaLayer.getBoundingClientRect();
+                const x = ((e.clientX - r.left) / viewport.width  * pdfW).toFixed(0);
+                const y = ((e.clientY - r.top)  / viewport.height * pdfH).toFixed(0);
+                document.getElementById('footer-coords').textContent = `X: ${x}, Y: ${y}`;
+            });
+
+        } catch (err) {
+            console.error('[AW] PDF render error:', err);
+            spin.innerHTML = `<span style="color:#e74c3c;font-size:12px;">Render error: ${err.message}</span>`;
+        }
+    }
+
+    // ── Draw OCR areas on canvas layer ───────────────────────
+    _drawAreas(layer, pageData, cssW, cssH, pdfW, pdfH) {
+        const scX = cssW / pdfW;
+        const scY = cssH / pdfH;
+
+        (pageData.blocks || []).forEach((blk, i) => {
+            const el = document.createElement('div');
+            const typeClassMap = {
+                'text': 'type-text',
+                'table': 'type-table',
+                'image': 'type-image',
+                'line': 'type-line',
+                'double_line': 'type-double_line',
+                'underline': 'type-text', // Map underline type to text-like rendering
+                'table_cell': 'type-text'
+            };
+            const typeCls = typeClassMap[blk.block_type] || 'type-text';
+            el.className = `aw-area ${typeCls}`;
+            el.dataset.id = blk.id;
+            if (blk.is_underlined) el.classList.add('is-underlined');
+            el.style.left   = (blk.x * scX) + 'px';
+            el.style.top    = (blk.y * scY) + 'px';
+            el.style.width  = (blk.width  * scX) + 'px';
+            el.style.height = (blk.height * scY) + 'px';
+            el.title = blk.current_text || blk.extracted_text || '';
+
+            const badge = document.createElement('span');
+            badge.className = 'aw-area-badge';
+            const idx = blk.block_index || i + 1;
+            const prefixMap = { 'line': 'L', 'underline': 'U', 'double_line': 'DL', 'image': 'IMG', 'table': 'T' };
+            const prefix = prefixMap[blk.block_type] || 'P';
+            badge.innerHTML = `<span class="order-num">${idx}</span><span>${prefix}${idx}</span>`;
+            el.appendChild(badge);
+
+            // hover sync
+            el.addEventListener('mouseenter', () => this._highlightEditor(blk.id, true));
+            el.addEventListener('mouseleave',  () => this._highlightEditor(blk.id, false));
+            el.addEventListener('click', (e) => {
+                const edBlk = document.getElementById(`aw-blk-${blk.id}`);
+                if (edBlk) { this._scrollEditorTo(edBlk); edBlk.focus({ preventScroll: true }); }
+                e.stopPropagation();
+            });
+
+            // Manual classification tools
+            const tools = document.createElement('div');
+            tools.className = 'aw-area-tools';
+            
+            const btnT = document.createElement('span');
+            btnT.innerHTML = '<i class="fas fa-table"></i>';
+            btnT.title = 'Convert to Table';
+            btnT.onclick = (e) => { e.stopPropagation(); this._updateBlockType(blk.id, 'table'); };
+            
+            const btnI = document.createElement('span');
+            btnI.innerHTML = '<i class="fas fa-image"></i>';
+            btnI.title = 'Convert to Image';
+            btnI.onclick = (e) => { e.stopPropagation(); this._updateBlockType(blk.id, 'image'); };
+
+            const btnL = document.createElement('span');
+            btnL.innerHTML = '<i class="fas fa-minus"></i>';
+            btnL.title = 'Convert to Line';
+            btnL.onclick = (e) => { e.stopPropagation(); this._updateBlockType(blk.id, 'line'); };
+
+            const btnU = document.createElement('span');
+            btnU.innerHTML = '<i class="fas fa-underline"></i>';
+            btnU.title = 'Toggle Underline';
+            btnU.onclick = (e) => { e.stopPropagation(); this._updateBlockUnderline(blk.id, !blk.is_underlined); };
+
+            const btnDL = document.createElement('span');
+            btnDL.innerHTML = '<i class="fas fa-equals"></i>';
+            btnDL.title = 'Convert to Double Line';
+            btnDL.onclick = (e) => { e.stopPropagation(); this._updateBlockType(blk.id, 'double_line'); };
+
+            const btnX = document.createElement('span');
+            btnX.innerHTML = '<i class="fas fa-times"></i>';
+            btnX.title = 'Delete Area';
+            btnX.style.color = '#dc2626';
+            btnX.onclick = (e) => { e.stopPropagation(); this._deleteBlock(blk.id); };
+
+            tools.appendChild(btnT);
+            tools.appendChild(btnI);
+            tools.appendChild(btnL);
+            tools.appendChild(btnU);
+            tools.appendChild(btnDL);
+            tools.appendChild(btnX);
+            el.appendChild(tools);
+            
+            // Premium Flow: Draggable / Resizable Areas (Syncs with Editor)
+            this._setupInteractive(el, { id: blk.id, type: 'block' }, scX, scY);
+
+            layer.appendChild(el);
+        });
+
+        (pageData.tables || []).forEach((tbl, i) => {
+            const el = document.createElement('div');
+            el.className = 'aw-area type-table';
+            el.id = `aw-tbl-${tbl.id}`;
+            el.dataset.id = tbl.id;
+            el.dataset.tableRef = tbl.table_ref;
+            el.style.left   = (tbl.x * scX) + 'px';
+            el.style.top    = (tbl.y * scY) + 'px';
+            el.style.width  = (tbl.width  * scX) + 'px';
+            el.style.height = (tbl.height * scY) + 'px';
+
+            const badge = document.createElement('span');
+            badge.className = 'aw-area-badge';
+            const idx = tbl.table_index || i + 1;
+            badge.innerHTML = `<span class="order-num">${idx}</span><span>T${idx}</span>`;
+            el.appendChild(badge);
+
+            // Render Grid Lines - High Fidelity
+            // ALWAYS use actual array lengths to drive line counts (not col_count/row_count which may be stale)
+            const cWidths = (tbl.col_widths && tbl.col_widths.length > 0) ? tbl.col_widths : null;
+            const rHeights = (tbl.row_heights && tbl.row_heights.length > 0) ? tbl.row_heights : null;
+            const cols = cWidths ? cWidths.length : (tbl.col_count || 1);
+            const rows = rHeights ? rHeights.length : (tbl.row_count || 1);
+            
+            // Vertical lines - exactly placed at col_widths boundaries, with draggable support
+            let currentX = 0;
+            let localColWidths = cWidths ? [...cWidths] : Array(cols).fill(100 / cols);
+            for (let c = 0; c < cols - 1; c++) {
+                const w = localColWidths[c];
+                currentX += w;
+                const line = document.createElement('div');
+                line.className = 'aw-table-line v';
+                line.style.left = currentX + '%';
+                line.title = 'Drag to adjust column width';
+                line.dataset.colIndex = c;
+
+                // ── Draggable column divider ──────────────────────
+                if (!this.cfg.isReadonly) {
+                    line.addEventListener('mousedown', (e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        line.classList.add('dragging');
+                        const elRect = el.getBoundingClientRect();
+                        let lastLeft = currentX;
+
+                        const onMove = (me) => {
+                            const relX = me.clientX - elRect.left;
+                            const pct  = Math.max(2, Math.min(98, (relX / elRect.width) * 100));
+                            line.style.left = pct + '%';
+                            lastLeft = pct;
+
+                            // Lively Feedback: Sync right pane table columns
+                            const rTableWrap = document.querySelector(`.aw-editor-pane .aw-table-wrap[data-table-ref="${tbl.table_ref}"]`);
+                            if (rTableWrap) {
+                                const vLines = Array.from(el.querySelectorAll('.aw-table-line.v'));
+                                const boundaries = vLines.map(vl => {
+                                    return (vl === line) ? pct : parseFloat(vl.style.left);
+                                }).sort((a,b) => a-b);
+                                
+                                const newWidths = [];
+                                let p = 0;
+                                for (const b of boundaries) {
+                                    newWidths.push(b - p);
+                                    p = b;
+                                }
+                                newWidths.push(100 - p);
+                                
+                                const cells = rTableWrap.querySelectorAll('tr:first-child td');
+                                cells.forEach((td, idx) => {
+                                    if (newWidths[idx]) td.style.width = newWidths[idx] + '%';
+                                });
+                            }
+                        };
+                        const onUp = async () => {
+                            line.classList.remove('dragging');
+                            document.removeEventListener('mousemove', onMove);
+                            document.removeEventListener('mouseup', onUp);
+
+                            // Recompute col_widths: find cumulative boundary positions
+                            const vLines = Array.from(el.querySelectorAll('.aw-table-line.v'));
+                            const boundaries = vLines.map(vl => parseFloat(vl.style.left));
+                            const newWidths = [];
+                            let prev = 0;
+                            for (const boundary of boundaries) {
+                                newWidths.push(Math.round((boundary - prev) * 10) / 10);
+                                prev = boundary;
+                            }
+                            newWidths.push(Math.round((100 - prev) * 10) / 10);
+
+                            if (!this.cfg.isReadonly) {
+                                try {
+                                    await fetch(`/api/v1/processing/tables/${tbl.id}/`, {
+                                        method: 'PATCH',
+                                        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': this.cfg.csrfToken },
+                                        body: JSON.stringify({ col_widths: newWidths })
+                                    });
+                                    this._setStatus('Column widths saved');
+                                } catch(err) {
+                                    this._setStatus('Failed to save column widths', 'error');
+                                }
+                            }
+                        };
+                        document.addEventListener('mousemove', onMove);
+                        document.addEventListener('mouseup', onUp);
+                    });
+                }
+                el.appendChild(line);
+            }
+            // Horizontal lines - exactly placed at row_heights boundaries
+            let currentY = 0;
+            let localRowHeights = rHeights ? [...rHeights] : Array(rows).fill(100 / rows);
+            for (let r = 0; r < rows - 1; r++) {
+                const h = localRowHeights[r];
+                currentY += h;
+                const line = document.createElement('div');
+                line.className = 'aw-table-line h';
+                line.style.top = currentY + '%';
+                line.title = 'Drag to adjust row height';
+                line.dataset.rowIndex = r;
+
+                // ── Draggable row divider ──────────────────────
+                if (!this.cfg.isReadonly) {
+                    line.addEventListener('mousedown', (e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        line.classList.add('dragging');
+                        const elRect = el.getBoundingClientRect();
+                        let lastTop = currentY;
+
+                        const onMove = (me) => {
+                            const relY = me.clientY - elRect.top;
+                            const pct  = Math.max(2, Math.min(98, (relY / elRect.height) * 100));
+                            line.style.top = pct + '%';
+                            lastTop = pct;
+
+                            // Lively Feedback: Sync right pane table rows
+                            const rTableWrap = document.querySelector(`.aw-editor-pane .aw-table-wrap[data-table-ref="${tbl.table_ref}"]`);
+                            if (rTableWrap) {
+                                const hLines = Array.from(el.querySelectorAll('.aw-table-line.h'));
+                                const boundaries = hLines.map(hl => {
+                                    return (hl === line) ? pct : parseFloat(hl.style.top);
+                                }).sort((a,b) => a-b);
+                                
+                                const newHeights = [];
+                                let p = 0;
+                                for (const b of boundaries) {
+                                    newHeights.push(b - p);
+                                    p = b;
+                                }
+                                newHeights.push(100 - p);
+                                
+                                const rows = rTableWrap.querySelectorAll('tr');
+                                const totalHeight = rTableWrap.offsetHeight;
+                                rows.forEach((tr, idx) => {
+                                    if (newHeights[idx]) {
+                                        tr.style.height = Math.round(totalHeight * (newHeights[idx] / 100)) + 'px';
+                                    }
+                                });
+                            }
+                        };
+                        const onUp = async () => {
+                            line.classList.remove('dragging');
+                            document.removeEventListener('mousemove', onMove);
+                            document.removeEventListener('mouseup', onUp);
+
+                            // Recompute row_heights: find cumulative boundary positions
+                            const hLines = Array.from(el.querySelectorAll('.aw-table-line.h'));
+                            // Sort needed because array from querySelectorAll is in DOM order, which might be out of sync if manually dragged past each other somehow (though restricted visually)
+                            const boundaries = hLines.map(hl => parseFloat(hl.style.top)).sort((a,b) => a-b);
+                            const newHeights = [];
+                            let prev = 0;
+                            for (const boundary of boundaries) {
+                                newHeights.push(Math.round((boundary - prev) * 10) / 10);
+                                prev = boundary;
+                            }
+                            newHeights.push(Math.round((100 - prev) * 10) / 10);
+
+                            if (!this.cfg.isReadonly) {
+                                try {
+                                    await fetch(`/api/v1/processing/tables/${tbl.id}/`, {
+                                        method: 'PATCH',
+                                        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': this.cfg.csrfToken },
+                                        body: JSON.stringify({ row_heights: newHeights })
+                                    });
+                                    this._setStatus('Row heights saved');
+                                } catch(err) {
+                                    this._setStatus('Failed to save row heights', 'error');
+                                }
+                            }
+                        };
+                        document.addEventListener('mousemove', onMove);
+                        document.addEventListener('mouseup', onUp);
+                    });
+                }
+                el.appendChild(line);
+            }
+
+            // Table Tools (Left Pane) - Unified with Right Pane
+            const tools = document.createElement('div');
+            tools.className = 'aw-area-tools table-tools';
+            
+            const btnR  = document.createElement('span'); btnR.innerHTML  = '<i class="fas fa-plus-square"></i>';  btnR.title  = 'Add Row';
+            const btnRm = document.createElement('span'); btnRm.innerHTML = '<i class="fas fa-minus-square"></i>'; btnRm.title = 'Remove Row';
+            const btnC  = document.createElement('span'); btnC.innerHTML  = '<i class="fas fa-plus-circle"></i>';  btnC.title  = 'Add Column';
+            const btnCm = document.createElement('span'); btnCm.innerHTML = '<i class="fas fa-minus-circle"></i>'; btnCm.title = 'Remove Column';
+            const btnSync = document.createElement('span'); btnSync.innerHTML = '<i class="fas fa-sync"></i>';      btnSync.title = 'Re-extract Text';
+            const btnX  = document.createElement('span'); btnX.innerHTML  = '<i class="fas fa-trash"></i>';         btnX.title  = 'Delete Table';
+            
+            btnR.onclick  = (e) => { e.stopPropagation(); window.aw_ws._addTableRow(tbl.id); };
+            btnRm.onclick = (e) => { e.stopPropagation(); window.aw_ws._deleteTableRow(tbl.id); };
+            btnC.onclick  = (e) => { e.stopPropagation(); window.aw_ws._addTableCol(tbl.id); };
+            btnCm.onclick = (e) => { e.stopPropagation(); window.aw_ws._deleteTableCol(tbl.id); };
+            btnSync.onclick = (e) => { e.stopPropagation(); window.aw_ws._reextractTable(tbl.id); };
+            btnX.onclick  = (e) => { e.stopPropagation(); window.aw_ws._deleteTable(tbl.id); };
+
+            btnX.style.color = '#f87171';
+            
+            tools.appendChild(btnR); tools.appendChild(btnRm);
+            tools.appendChild(btnC); tools.appendChild(btnCm);
+            tools.appendChild(btnSync);
+            tools.appendChild(btnX);
+            el.appendChild(tools);
+
+            // Premium Flow: Draggable / Resizable Table Areas (Syncs with Editor)
+            this._setupInteractive(el, { id: tbl.id, type: 'table', ref: tbl.table_ref }, scX, scY);
+
+            layer.appendChild(el);
+        });
+
+        (pageData.images || []).forEach((img, i) => {
+            const el = document.createElement('div');
+            el.className = 'aw-area type-image';
+            el.dataset.id = img.id;
+            el.style.left   = (img.x * scX) + 'px';
+            el.style.top    = (img.y * scY) + 'px';
+            el.style.width  = (img.width  * scX) + 'px';
+            el.style.height = (img.height * scY) + 'px';
+
+            const badge = document.createElement('span');
+            badge.className = 'aw-area-badge';
+            const idx = img.image_index || i + 1;
+            badge.innerHTML = `<span class="order-num">${idx}</span><span>IMG${idx}</span>`;
+            el.appendChild(badge);
+
+            const tools = document.createElement('div');
+            tools.className = 'aw-area-tools';
+            
+            const btnX = document.createElement('span');
+            btnX.innerHTML = '<i class="fas fa-times"></i>';
+            btnX.title = 'Delete Area';
+            btnX.style.color = '#dc2626';
+            btnX.onclick = (e) => { e.stopPropagation(); this._deleteImage(img.id); };
+            
+            tools.appendChild(btnX);
+            el.appendChild(tools);
+
+            // Premium Flow: Draggable / Resizable Image Areas (Syncs with Editor)
+            this._setupInteractive(el, { id: img.id, type: 'image' }, scX, scY);
+
+            layer.appendChild(el);
+        });
+    }
+
+    // ── Setup area drawing ────────────────────────────────────
+    _setupDrawing(layer, pageData, cssW, cssH, pdfW, pdfH) {
+        // Remove old listener if any (to prevent accumulation on page switch)
+        if (this._drawDownHandler) layer.removeEventListener('mousedown', this._drawDownHandler);
+
+        this._drawDownHandler = (e) => {
+            if (this.tool === 'select') return;
+            let drawing = true;
+            const r = layer.getBoundingClientRect();
+            const startX = e.clientX - r.left;
+            const startY = e.clientY - r.top;
+            
+            const tempEl = document.createElement('div');
+            tempEl.className = `aw-area type-${this.tool}`;
+            tempEl.style.left = startX + 'px';
+            tempEl.style.top  = startY + 'px';
+            layer.appendChild(tempEl);
+            e.preventDefault();
+
+            const onMouseMove = (moveEv) => {
+                if (!drawing) return;
+                const r2 = layer.getBoundingClientRect();
+                const x = moveEv.clientX - r2.left;
+                const y = moveEv.clientY - r2.top;
+                tempEl.style.left   = Math.min(x, startX) + 'px';
+                tempEl.style.top    = Math.min(y, startY) + 'px';
+                tempEl.style.width  = Math.abs(x - startX) + 'px';
+                tempEl.style.height = Math.abs(y - startY) + 'px';
+            };
+
+            const onMouseUp = async (upEv) => {
+                drawing = false;
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+
+                const w = parseFloat(tempEl.style.width || 0);
+                const h = parseFloat(tempEl.style.height || 0);
+                if (w < 10 || h < 10) { tempEl.remove(); return; }
+
+                const scX = pdfW / cssW;
+                const scY = pdfH / cssH;
+                
+                let finalX = parseFloat(tempEl.style.left);
+                let finalY = parseFloat(tempEl.style.top);
+                let finalW = w;
+                let finalH = h;
+
+                const isHorizontalTool = ['line', 'double_line'].includes(this.tool);
+                if (isHorizontalTool || (this.tool === 'underline' && h < w)) {
+                    // Force thin horizontal line at the bottom of the drawn box
+                    // Force it for line tools ALWAYS, for underline only if drawn horizontally
+                    const lineThinness = 4;
+                    finalY = finalY + h - lineThinness;
+                    finalH = lineThinness; 
+                }
+                
+                // If it's an underline drawn OVER an existing text block, try to just underline that block
+                if (this.tool === 'underline') {
+                    const intersected = (pageData.blocks || []).find(b => {
+                        return (finalX * scX < b.x + b.width && finalX * scX + finalW * scX > b.x &&
+                                finalY * scY < b.y + b.height && finalY * scY + finalH * scY > b.y);
+                    });
+                    if (intersected) {
+                        tempEl.remove();
+                        await this._updateBlockUnderline(intersected.id, true);
+                        return;
+                    }
+                }
+                
+                const bd = {
+                    type: this.tool,
+                    x: finalX * scX,
+                    y: finalY * scY,
+                    width:  finalW * scX,
+                    height: finalH * scY,
+                };
+
+                this._setStatus('Creating area…');
+                try {
+                    const r2 = await fetch(`/api/v1/processing/workspace/pages/${pageData.id}/blocks/create/`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': this.cfg.csrfToken },
+                        body: JSON.stringify(bd)
+                    });
+                    if (r2.ok) {
+                        this._setStatus('Area created');
+                        await this._loadData(); 
+                        await this._loadPage(this.curPage); 
+                    } else {
+                        tempEl.remove();
+                        this._setStatus('Failed to create area', 'error');
+                    }
+                } catch (err) {
+                    tempEl.remove();
+                    this._setStatus('Error: ' + err.message, 'error');
+                }
+            };
+
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+        };
+
+        layer.addEventListener('mousedown', this._drawDownHandler);
+    }
+
+    // ── Editor pane ───────────────────────────────────────────
+    _renderEditorPane(pageData) {
+        const scroll = this.els.editorScroll;
+        scroll.innerHTML = '';
+
+        const pdfW = pageData.layout_data?.page_dims?.width  || 595;
+        const pdfH = pageData.layout_data?.page_dims?.height || 842;
+        const baseW = 780 * this.zoom;
+        const baseH = (pdfH / pdfW) * baseW; 
+        
+        const scX = baseW / pdfW;
+        const scY = baseH / pdfH;
+
+        const meta = pageData.layout_data?.page_meta || {};
+        const bg = document.createElement('div');
+        bg.className = 'aw-editor-bg';
+        bg.style.position = 'relative';
+        bg.style.width    = baseW + 'px';
+        bg.style.height   = baseH + 'px';
+        bg.style.background = meta.bg_color || '#ffffff';
+        bg.style.boxShadow  = '0 4px 18px rgba(0,0,0,0.12), 0 0 1px rgba(0,0,0,0.1)';
+        bg.style.borderRadius = '2px';
+        bg.style.overflow = 'hidden'; // Clip content at page boundary
+
+        // Render Page header banner if detected (like the red line)
+        if (meta.header_line) {
+            const hLine = document.createElement('div');
+            hLine.className = 'aw-block decoration';
+            hLine.style.position = 'absolute';
+            hLine.style.left = '0';
+            hLine.style.right = '0';
+            hLine.style.top = (meta.header_line.y * scY) + 'px';
+            hLine.style.height = (meta.header_line.h * scY) + 'px';
+            hLine.style.background = meta.header_line.color || '#ff0000';
+            hLine.style.zIndex = '5';
+            bg.appendChild(hLine);
+
+            // Make it interactive
+            this._setupInteractive(hLine, { id: 'header_dec', type: 'block' }, scX, scY);
+            
+            const handle = document.createElement('div');
+            handle.className = 'aw-drag-handle';
+            handle.innerHTML = '<i class="fas fa-grip-vertical"></i>';
+            hLine.appendChild(handle);
+        }
+
+        // Render text blocks
+        (pageData.blocks || []).forEach(blk => {
+            if (blk.block_type === 'table_cell') return; // Skip blocks that are safely rendered inside the table structure
+            if (blk.block_type === 'image') return; // Skip, handled by PageImage loop natively
+            if (blk.block_type === 'table') return; // Skip, handled by PageTable loop natively
+            
+            const el = document.createElement('div');
+            el.id = `aw-blk-${blk.id}`;
+            el.className = `aw-block type-${blk.block_type}`;
+            el.contentEditable = this.cfg.isReadonly ? 'false' : 'true';
+            el.dataset.id = blk.id;
+
+            // Set dimensions exactly to match the PDF bounding box
+            el.style.left      = (blk.x * scX) + 'px';
+            el.style.top       = (blk.y * scY) + 'px';
+            el.style.width     = (blk.width * scX) + 'px';
+            el.style.height    = (blk.height * scY) + 'px';
+
+            // font_size is in PDF points. Multiply by scX to map pt→CSS px correctly.
+            const scaledFontPx = Math.round((blk.font_size || 10) * scX);
+            
+            let fFamily = blk.font_name || 'inherit';
+            if (fFamily.toLowerCase().includes('times') || fFamily.toLowerCase().includes('serif')) {
+                fFamily = `"${fFamily}", Times, "Times New Roman", serif`;
+            } else {
+                fFamily = `"${fFamily}", "Inter", "Segoe UI", sans-serif`;
+            }
+            
+            el.style.fontFamily = fFamily;
+            el.style.fontSize   = scaledFontPx + 'px';
+            el.style.lineHeight = '1'; // Strict line height for bbox matching
+            el.style.color      = blk.font_color || '#000';
+            el.style.textAlign  = blk.alignment || 'left';
+            
+            if (blk.font_weight === 'bold')   el.style.fontWeight = 'bold';
+            if (blk.font_style  === 'italic') el.style.fontStyle  = 'italic';
+            if (blk.is_underlined || blk.block_type === 'underline') {
+                el.style.textDecoration = 'underline';
+            }
+
+            const PLACEHOLDER_TEXTS = new Set(['[Line Area]', '[Image Area]', '[Table Cell]', '[New Table]']);
+            const isGraphical = ['line', 'double_line', 'image'].includes(blk.block_type);
+            if (!isGraphical) {
+                const rawText = blk.current_text || blk.extracted_text || '';
+                el.textContent = PLACEHOLDER_TEXTS.has(rawText.trim()) ? '' : rawText;
+            }
+            const tContent = el.textContent;
+
+            // PRE-WRAP is critical for multi-line block alignment fidelity:
+            // But for line-level blocks, 'nowrap' is often safer to keep the horizontal start position strict.
+            el.style.whiteSpace = 'nowrap';
+            el.style.overflow   = 'visible'; 
+            el.style.textAlign  = blk.text_align || 'left';
+            el.style.padding    = '0'; // Strict coordinate fidelity
+            el.style.lineHeight = '1.1';
+            if (blk.text_align === 'center') el.style.textAlign = 'center';
+            if (blk.text_align === 'right')  el.style.textAlign = 'right';
+
+            // Switch to pre while editing so user can add newlines freely
+            el.addEventListener('focus', () => {
+                el.style.whiteSpace = 'pre-wrap';
+                el.style.zIndex = '30';
+                this._highlightArea(blk.id, true);
+                
+                // Track selection for formatting tools
+                this.selectedBlockId = blk.id;
+                this.selectedBlockData = blk;
+                this.selectedCellContext = null;
+                this._syncFormattingRibbon();
+            });
+            el.addEventListener('blur', () => {
+                el.style.whiteSpace = el.textContent.includes('\n') ? 'pre-wrap' : 'nowrap';
+                el.style.zIndex = '';
+                this._highlightArea(blk.id, false);
+            });
+            el.addEventListener('input', () => {
+                this._setStatus('Editing…');
+                clearTimeout(this.pendingSaves[blk.id]);
+                this.pendingSaves[blk.id] = setTimeout(() => this._saveBlock(blk.id, el.textContent), 900);
+            });
+            el.addEventListener('keydown',   (e) => {
+                if (e.ctrlKey && e.key === 's') { e.preventDefault(); this._saveAll(); }
+                if (e.ctrlKey && e.key === 'z') { e.preventDefault(); this._undo(); }
+                if (e.ctrlKey && e.key === 'y') { e.preventDefault(); this._redo(); }
+            });
+            
+            this._setupInteractive(el, { id: blk.id, type: 'block' }, scX, scY);
+
+            bg.appendChild(el);
+            
+            // Drag handle
+            const handle = document.createElement('div');
+            handle.className = 'aw-drag-handle';
+            handle.innerHTML = '<i class="fas fa-grip-vertical"></i>';
+            el.appendChild(handle);
+
+            // Resize handle
+            const resizer = document.createElement('div');
+            resizer.className = 'aw-block-resizer';
+            el.appendChild(resizer);
+
+        });
+
+        // Render tables
+        (pageData.tables || []).forEach(tbl => {
+            const wrap = document.createElement('div');
+            wrap.className = 'aw-table-wrap';
+            wrap.dataset.tableId  = tbl.id;
+            wrap.dataset.tableRef = tbl.table_ref;
+            wrap.style.left   = (tbl.x * scX) + 'px';
+            wrap.style.top    = (tbl.y * scY) + 'px';
+            wrap.style.width  = (tbl.width  * scX) + 'px';
+            wrap.style.minHeight = (tbl.height * scY) + 'px';
+            
+            // Table Tools
+            const tTools = document.createElement('div');
+            tTools.className = 'aw-table-tools';
+            tTools.innerHTML = `
+                <span class="plus"   title="Add Row"      onclick="window.aw_ws._addTableRow('${tbl.id}')"><i class="fas fa-plus-square"></i></span>
+                <span class="minus"  title="Remove Row"   onclick="window.aw_ws._deleteTableRow('${tbl.id}')"><i class="fas fa-minus-square"></i></span>
+                <span class="plus"   title="Add Column"   onclick="window.aw_ws._addTableCol('${tbl.id}')"><i class="fas fa-plus-circle"></i></span>
+                <span class="minus"  title="Remove Column" onclick="window.aw_ws._deleteTableCol('${tbl.id}')"><i class="fas fa-minus-circle"></i></span>
+                <span class="danger" title="Delete Table" onclick="window.aw_ws._deleteTable('${tbl.id}')"><i class="fas fa-trash"></i></span>
+            `;
+            wrap.appendChild(tTools);
+
+            // Drag handle
+            const handle = document.createElement('div');
+            handle.className = 'aw-drag-handle';
+            handle.innerHTML = '<i class="fas fa-grip-vertical"></i>';
+            wrap.appendChild(handle);
+
+            // Premium Flow: Draggable / Resizable Tables
+            this._setupInteractive(wrap, { id: tbl.id, type: 'table', ref: tbl.table_ref }, scX, scY);
+
+            const table = document.createElement('table');
+
+            table.className = 'aw-table';
+            table.style.borderCollapse = 'collapse';
+            table.style.border = '2px solid #2563eb'; // Strong outer border
+
+            (tbl.table_json || []).forEach((row, rIdx) => {
+                const tr = document.createElement('tr');
+                if (tbl.row_colors && tbl.row_colors[rIdx]) {
+                    tr.style.backgroundColor = tbl.row_colors[rIdx];
+                }
+                if (tbl.row_heights && tbl.row_heights[rIdx]) {
+                    // Convert percentage row heights explicitly into scaled pixel thresholds
+                    // This forces the CSS DOM to reserve exact height for empty elements natively
+                    const rhPixels = (tbl.height * scY) * (tbl.row_heights[rIdx] / 100.0);
+                    tr.style.height = Math.round(rhPixels) + 'px';
+                }
+                
+                (row || []).forEach((cell, cIdx) => {
+                    const td = document.createElement('td');
+                    td.contentEditable = this.cfg.isReadonly ? 'false' : 'true';
+                    
+                    const cText = (typeof cell === 'object') ? cell.text : cell;
+                    const cIndent = (typeof cell === 'object') ? (cell.indent || 0) : 0;
+                    
+                    // Premium Cell Formatting
+                    const cellObj = (typeof cell === 'object') ? cell : { text: cell };
+                    const fWeight = cellObj.font_weight || (cellObj.bold ? 'bold' : 'normal');
+                    const fStyle  = cellObj.font_style  || 'normal';
+                    const fSize   = cellObj.font_size   || 9;
+                    const tAlign  = cellObj.text_align  || 'left';
+                    const isUnd   = cellObj.is_underlined || false;
+
+                    td.textContent = cText;
+                    td.style.fontSize   = Math.round(fSize * scX) + 'px';
+                    td.style.fontWeight = fWeight;
+                    td.style.fontStyle  = fStyle;
+                    td.style.textAlign  = tAlign;
+                    td.style.textDecoration = isUnd ? 'underline' : 'none';
+                    td.style.verticalAlign = 'top';
+                    td.style.whiteSpace = 'pre-wrap';
+                    td.style.wordBreak = 'break-word';
+
+                    // High-Precision Table Alignment
+                    const isNumeric = /^\d+$/.test(cText.trim());
+                    if (cIdx === 1 || isNumeric) {
+                        td.style.textAlign = 'right';
+                        td.style.padding = '6px 12px 6px 8px'; 
+                    } else {
+                        td.style.textAlign = tAlign || 'left';
+                        td.style.padding = '6px 8px';
+                    }
+                    
+                    if (cIdx === 0) {
+                        const basePad = 8;
+                        td.style.paddingLeft = Math.round((basePad + (cIndent || 0)) * scX) + 'px';
+                    }
+                    
+                    // Full grid — rows AND columns, strong blue
+                    td.style.border = '1px solid #2563eb'; 
+                    
+                    const rowColor = (tbl.row_colors && tbl.row_colors[rIdx]);
+                    if (rowColor) {
+                        td.style.background = rowColor;
+                    }
+
+                    // Apply column-level alignment and width
+                    if (tbl.col_widths && tbl.col_widths[cIdx]) {
+                        td.style.width = tbl.col_widths[cIdx] + '%';
+                    }
+
+                    // Selection Context for Formatting Tools
+                    td.addEventListener('focus', () => {
+                        this.selectedBlockId = `cell-${tbl.table_ref}-${rIdx}-${cIdx}`;
+                        this.selectedCellContext = { tableRef: tbl.table_ref, row: rIdx, col: cIdx, tblObj: tbl };
+                        
+                        // Pseudo-block data for the ribbon
+                        this.selectedBlockData = {
+                            block_type: 'table_cell',
+                            font_name:   cellObj.font_name || 'Arial',
+                            font_size:   fSize,
+                            font_weight: fWeight,
+                            font_style:  fStyle,
+                            text_align:  tAlign,
+                            is_underlined: isUnd
+                        };
+                        this._syncFormattingRibbon();
+                        
+                        // Highlight current cell
+                        document.querySelectorAll('.aw-table td').forEach(el => el.style.boxShadow = '');
+                        td.style.boxShadow = 'inset 0 0 0 2px #2563eb';
+                    });
+
+                    td.addEventListener('input', () => {
+                        if (tbl.table_json && tbl.table_json[rIdx]) {
+                            const cell = tbl.table_json[rIdx][cIdx];
+                            if (typeof cell === 'object' && cell !== null) {
+                                cell.text = td.textContent;
+                            } else {
+                                tbl.table_json[rIdx][cIdx] = { text: td.textContent, indent: 0 };
+                            }
+                        }
+                        clearTimeout(this.tableSaves[`${tbl.table_ref}_${rIdx}_${cIdx}`]);
+                        this.tableSaves[`${tbl.table_ref}_${rIdx}_${cIdx}`] = setTimeout(
+                            () => this._saveCell(tbl.table_ref, rIdx, cIdx, td.textContent), 900
+                        );
+                    });
+                    
+                    // Cell context menu for deletion
+                    td.oncontextmenu = (e) => {
+                        e.preventDefault();
+                        this._showContextMenu(e.clientX, e.clientY, [
+                            { icon: 'fas fa-plus-square', label: 'Insert Row Above', action: () => this._addTableRow(tbl.id, rIdx) },
+                            { icon: 'fas fa-plus-square', label: 'Insert Row Below', action: () => this._addTableRow(tbl.id, rIdx + 1) },
+                            { sep: true },
+                            { icon: 'fas fa-minus-square', label: 'Delete This Row', danger: true, action: () => this._deleteTableRow(tbl.id, rIdx) },
+                            { sep: true },
+                            { icon: 'fas fa-plus-circle', label: 'Insert Column Left', action: () => this._addTableCol(tbl.id, cIdx) },
+                            { icon: 'fas fa-plus-circle', label: 'Insert Column Right', action: () => this._addTableCol(tbl.id, cIdx + 1) },
+                            { sep: true },
+                            { icon: 'fas fa-minus-circle', label: 'Delete This Column', danger: true, action: () => this._deleteTableCol(tbl.id, cIdx) }
+                        ]);
+                    };
+
+                    tr.appendChild(td);
+                });
+                table.appendChild(tr);
+            });
+
+            wrap.appendChild(table);
+            
+            // Resize handle
+            const resizer = document.createElement('div');
+            resizer.className = 'aw-block-resizer';
+            wrap.appendChild(resizer);
+
+            bg.appendChild(wrap);
+
+        });
+
+
+        // Render images
+        (pageData.images || []).forEach(img => {
+            const el = document.createElement('div');
+            el.className = 'aw-block-image';
+            el.dataset.id = img.id;
+            el.style.position = 'absolute';
+            el.style.left      = (img.x * scX) + 'px';
+            el.style.top       = (img.y * scY) + 'px';
+            el.style.width     = (img.width * scX) + 'px';
+            el.style.height    = (img.height * scY) + 'px';
+            el.style.border    = '2px dashed #94a3b8';
+            el.style.background = '#f8fafc';
+            el.style.display    = 'flex';
+            el.style.alignItems = 'center';
+            el.style.justifyContent = 'center';
+            el.style.color      = '#64748b';
+            el.style.overflow   = 'hidden';
+            el.style.pointerEvents = 'auto'; // Enable dragging/resizing
+
+
+            if (img.image_url) {
+                const iEl = document.createElement('img');
+                iEl.src = img.image_url;
+                iEl.style.maxWidth = '100%';
+                iEl.style.maxHeight = '100%';
+                iEl.style.objectFit = 'contain';
+                iEl.style.pointerEvents = 'none'; // Ensure clicks pass through to to wrapper for dragging
+                el.appendChild(iEl);
+            } else {
+                // Visible placeholder box — doesn't depend on FontAwesome glyph loading
+                el.innerHTML = `
+                    <div style="text-align:center;padding:4px;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                            <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                            <polyline points="21 15 16 10 5 21"></polyline>
+                        </svg>
+                        <div style="font-size:9px;color:#94a3b8;margin-top:2px;">Image</div>
+                    </div>`;
+            }
+            
+            // Image Upload Implementation
+            const fileInput = document.createElement('input');
+            fileInput.type = 'file';
+            fileInput.accept = 'image/*';
+            fileInput.style.display = 'none';
+            el.appendChild(fileInput);
+
+            fileInput.addEventListener('change', async (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                
+                const formData = new FormData();
+                formData.append('file', file);
+                
+                try {
+                    this._setStatus('Uploading image...');
+                    const res = await fetch(`/api/v1/processing/images/${img.id}/upload/`, {
+                        method: 'POST',
+                        headers: { 'X-CSRFToken': this.cfg.csrfToken },
+                        body: formData
+                    });
+                    if (res.ok) {
+                        const data = await res.json();
+                        this._setStatus('Image uploaded successfully');
+                        await this._loadData();
+                        this._loadPage(this.curPage);
+                    } else {
+                        this._setStatus('Upload failed', 'error');
+                    }
+                } catch(err) {
+                    this._setStatus('Upload error', 'error');
+                }
+            });
+            
+            if (!this.cfg.isReadonly) {
+                const upBtn = document.createElement('div');
+                upBtn.innerHTML = '<i class="fas fa-upload"></i>';
+                upBtn.title = "Upload Image";
+                upBtn.className = 'aw-image-upload-btn';
+                upBtn.style.position = 'absolute';
+                upBtn.style.top = '4px';
+                upBtn.style.right = '4px';
+                upBtn.style.cursor = 'pointer';
+                upBtn.style.background = '#0ea5e9';
+                upBtn.style.color = 'white';
+                upBtn.style.padding = '4px 8px';
+                upBtn.style.borderRadius = '4px';
+                upBtn.style.zIndex = '10';
+                
+                upBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    fileInput.click();
+                };
+                el.appendChild(upBtn);
+
+                const delBtn = document.createElement('div');
+                delBtn.innerHTML = '<i class="fas fa-trash"></i>';
+                delBtn.title = 'Delete Image Area';
+                delBtn.className = 'aw-image-delete-btn';
+                delBtn.style.position = 'absolute';
+                delBtn.style.top = '4px';
+                delBtn.style.right = '40px'; 
+                delBtn.style.cursor = 'pointer';
+                delBtn.style.background = '#ef4444';
+                delBtn.style.color = 'white';
+                delBtn.style.padding = '4px 8px';
+                delBtn.style.borderRadius = '4px';
+                delBtn.style.zIndex = '10';
+                
+                delBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    if (window.aw_ws) window.aw_ws._deleteImage(img.id);
+                };
+                el.appendChild(delBtn);
+            }
+
+            // Premium Flow: Draggable / Resizable Images
+            this._setupInteractive(el, { id: img.id, type: 'image' }, scX, scY);
+            
+            // Drag handle
+            const handle = document.createElement('div');
+            handle.className = 'aw-drag-handle';
+            handle.innerHTML = '<i class="fas fa-grip-vertical"></i>';
+            el.appendChild(handle);
+
+            // Resize handle
+            const resizer = document.createElement('div');
+            resizer.className = 'aw-block-resizer';
+            el.appendChild(resizer);
+
+            bg.appendChild(el);
+
+
+        });
+
+        scroll.appendChild(bg);
+    }
+
+    // ── Sync highlights ───────────────────────────────────────
+    _highlightEditor(blockId, on) {
+        const el = document.getElementById(`aw-blk-${blockId}`);
+        if (el) el.classList.toggle('highlighted', on);
+    }
+    _highlightArea(blockId, on) {
+        // Highlight the matching area on left pane
+        // (areas don't have IDs yet; skip for now)
+    }
+
+    // ── Interactive Movement & Resizing (Premium) ─────────────
+    _setupInteractive(el, obj, scX, scY) {
+        let isDragging = false, isResizing = false;
+        let startX, startY, startL, startT, startW, startH;
+
+        const onMouseMove = (e) => {
+            if (!isDragging && !isResizing) return;
+            const dx = (e.clientX - startX);
+            const dy = (e.clientY - startY);
+
+            const newL = startL + dx;
+            const newT = startT + dy;
+            const newW = Math.max(30, startW + dx);
+            const newH = Math.max(20, startH + dy);
+
+            if (isDragging) {
+                el.style.left = newL + 'px';
+                el.style.top  = newT + 'px';
+            } else if (isResizing) {
+                el.style.width = newW + 'px';
+                if (obj.type === 'block') el.style.minHeight = newH + 'px';
+                else                      el.style.height    = newH + 'px';
+            }
+
+            // Lively Feedback: Bi-directional sync
+            let twin = null;
+            const isLeftPane = el.closest('.aw-area-layer');
+            const editorBg   = el.closest('.aw-editor-bg');
+            
+            if (isLeftPane) {
+                // Moving on left -> Sync right
+                if (obj.type === 'block') twin = document.getElementById(`aw-blk-${obj.id}`);
+                else if (obj.type === 'table') twin = document.querySelector(`.aw-editor-pane .aw-table-wrap[data-table-ref="${obj.ref}"]`);
+                else if (obj.type === 'image') twin = document.querySelector(`.aw-editor-pane .aw-block-image[data-id="${obj.id}"]`);
+                
+                if (twin) {
+                    const rBaseW = twin.parentElement.offsetWidth;
+                    const lBaseW = el.parentElement.offsetWidth;
+                    const rBaseH = twin.parentElement.offsetHeight;
+                    const lBaseH = el.parentElement.offsetHeight;
+                    const scaleX = rBaseW / lBaseW;
+                    const scaleY = rBaseH / lBaseH;
+
+                    twin.style.left = (newL * scaleX) + 'px';
+                    twin.style.top  = (newT * scaleY) + 'px';
+                    twin.style.width = (newW * scaleX) + 'px';
+                    const hVal = parseFloat(obj.type === 'block' ? (el.style.minHeight || el.style.height) : el.style.height) * scaleY;
+                    if (obj.type === 'block') twin.style.minHeight = hVal + 'px';
+                    else                      twin.style.height    = hVal + 'px';
+                }
+            } else if (editorBg) {
+                 // Moving on right -> Sync left
+                 const leftLayer = document.querySelector('.aw-area-layer');
+                 if (leftLayer) {
+                     if (obj.type === 'block') twin = leftLayer.querySelector(`.aw-area[data-id="${obj.id}"]`);
+                     else if (obj.type === 'table') twin = leftLayer.querySelector(`.aw-area.type-table[data-table-ref="${obj.ref}"]`);
+                     else if (obj.type === 'image') twin = leftLayer.querySelector(`.aw-area.type-image[data-id="${obj.id}"]`);
+                     
+                     if (twin) {
+                         const lBaseW = leftLayer.offsetWidth;
+                         const rBaseW = editorBg.offsetWidth;
+                         const lBaseH = leftLayer.offsetHeight;
+                         const rBaseH = editorBg.offsetHeight;
+                         const scaleX = lBaseW / rBaseW;
+                         const scaleY = lBaseH / rBaseH;
+
+                         twin.style.left = (newL * scaleX) + 'px';
+                         twin.style.top  = (newT * scaleY) + 'px';
+                         twin.style.width = (newW * scaleX) + 'px';
+                         twin.style.height = (newH * scaleY) + 'px';
+                     }
+                 }
+            }
+        };
+
+        const onMouseUp = () => {
+            if (isDragging || isResizing) {
+                isDragging = false; isResizing = false;
+                
+                // Cleanup listeners
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+                
+                // Sync to backend
+                const nx = parseFloat(el.style.left) / scX;
+                const ny = parseFloat(el.style.top)  / scY;
+                const nw = parseFloat(el.style.width) / scX;
+                const nh = parseFloat(obj.type === 'block' ? (el.style.minHeight || el.style.height) : el.style.height) / scY;
+                
+                // History recording
+                if (Math.abs(nx - startL/scX) > 0.1 || Math.abs(ny - startT/scY) > 0.1 || 
+                    Math.abs(nw - startW/scX) > 0.1 || Math.abs(nh - startH/scY) > 0.1) {
+                    
+                    const oldGeom = { x: startL/scX, y: startT/scY, w: startW/scX, h: startH/scY };
+                    const newGeom = { x: nx, y: ny, w: nw, h: nh };
+                    
+                    this._pushAction({
+                        label: isDragging ? 'Move' : 'Resize',
+                        undo: () => this._syncMovement(obj, oldGeom.x, oldGeom.y, oldGeom.w, oldGeom.h),
+                        redo: () => this._syncMovement(obj, newGeom.x, newGeom.y, newGeom.w, newGeom.h)
+                    });
+                }
+
+                this._syncMovement(obj, nx, ny, nw, nh);
+            }
+        };
+
+        el.onmousedown = (e) => {
+            if (this.cfg.isReadonly) return;
+            
+            const target = e.target;
+            const isResizer = target.classList.contains('aw-block-resizer');
+            const isHandle  = target.classList.contains('aw-drag-handle') || target.closest('.aw-drag-handle');
+            
+            // Allow clicking handle (and icon inside)
+            if (isResizer) {
+                isResizing = true;
+            } else if (isHandle) {
+                isDragging = true;
+            } else if (target.contentEditable !== 'true') {
+                isDragging = true;
+            } else {
+                return; // Normal editing or other tool
+            }
+
+            startX = e.clientX; startY = e.clientY;
+            startL = parseFloat(el.style.left) || 0;
+            startT = parseFloat(el.style.top)  || 0;
+            startW = parseFloat(el.style.width) || el.offsetWidth;
+            startH = parseFloat(obj.type === 'block' ? (el.style.minHeight || el.style.height) : el.style.height) || el.offsetHeight;
+
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+            e.stopPropagation();
+            e.preventDefault(); // Stop native drag intercept (e.g. <img> tags natively dragging)
+        };
+    }
+
+    async _syncMovement(obj, x, y, width, height, skipHistory = false) {
+        let url = `/api/v1/processing/blocks/${obj.id}/save/`;
+        if (obj.type === 'table') url = `/api/v1/processing/tables/${obj.id}/`;
+        if (obj.type === 'image') url = `/api/v1/processing/images/${obj.id}/`;
+
+        try {
+            const res = await fetch(url, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': this.cfg.csrfToken },
+                body: JSON.stringify({ x, y, width, height })
+            });
+            if (res.ok) {
+                await this._loadData();
+                await this._loadPage(this.curPage);
+            }
+            this._setStatus('Layout synchronized');
+        } catch(e) { this._setStatus('Sync failed', 'error'); }
+    }
+
+
+    // ── Table Structural Edits ────────────────────────────────
+    async _addTableRow(tableId, index = null) {
+        try {
+            this._setStatus('Adding row...');
+            const body = (index !== null && index !== undefined) ? JSON.stringify({ index }) : '{}';
+            const r = await fetch(`/api/v1/processing/tables/${tableId}/rows/add/`, {
+                method: 'POST', 
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': this.cfg.csrfToken },
+                body
+            });
+            if (r.ok) { 
+                await this._loadData(); 
+                this._loadPage(this.curPage); 
+                this._setStatus('Row added');
+            } else {
+                this._setStatus('Failed to add row', 'error');
+            }
+        } catch(e) { this._setStatus('Add row error', 'error'); }
+    }
+    async _deleteTableRow(tableId, index = null) {
+        if (index !== null && index !== undefined && !await this._confirm('Delete Row', `Delete row ${index + 1}?`)) return;
+        try {
+            this._setStatus('Deleting row...');
+            const body = (index !== null && index !== undefined) ? JSON.stringify({ index }) : '{}';
+            const r = await fetch(`/api/v1/processing/tables/${tableId}/rows/delete/`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': this.cfg.csrfToken },
+                body
+            });
+            if (r.ok) { 
+                await this._loadData(); 
+                this._loadPage(this.curPage); 
+                this._setStatus('Row deleted');
+            } else {
+                this._setStatus('Failed to delete row', 'error');
+            }
+        } catch(e) { this._setStatus('Delete row error', 'error'); }
+    }
+    async _addTableCol(tableId, index = null) {
+        try {
+            this._setStatus('Adding column...');
+            const body = (index !== null && index !== undefined) ? JSON.stringify({ index }) : '{}';
+            const r = await fetch(`/api/v1/processing/tables/${tableId}/cols/add/`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': this.cfg.csrfToken },
+                body
+            });
+            if (r.ok) { 
+                await this._loadData(); 
+                this._loadPage(this.curPage); 
+                this._setStatus('Column added');
+            } else {
+                this._setStatus('Failed to add column', 'error');
+            }
+        } catch(e) { this._setStatus('Add column error', 'error'); }
+    }
+    async _deleteTableCol(tableId, index = null) {
+        if (index !== null && index !== undefined && !await this._confirm('Delete Column', `Delete column ${index + 1}?`)) return;
+        try {
+            this._setStatus('Deleting column...');
+            const body = (index !== null && index !== undefined) ? JSON.stringify({ index }) : '{}';
+            const r = await fetch(`/api/v1/processing/tables/${tableId}/cols/delete/`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': this.cfg.csrfToken },
+                body
+            });
+            if (r.ok) { 
+                await this._loadData(); 
+                this._loadPage(this.curPage); 
+                this._setStatus('Column deleted');
+            } else {
+                this._setStatus('Failed to delete column', 'error');
+            }
+        } catch(e) { this._setStatus('Delete column error', 'error'); }
+    }
+    async _reextractTable(tableId) {
+        try {
+            this._setStatus('Re-extracting table...');
+            const r = await fetch(`/api/v1/processing/tables/${tableId}/reextract/`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': this.cfg.csrfToken }
+            });
+            if (r.ok) { 
+                await this._loadData(); 
+                this._loadPage(this.curPage); 
+                this._setStatus('Table re-extracted');
+            } else {
+                this._setStatus('Failed to re-extract table', 'error');
+            }
+        } catch(e) { this._setStatus('Re-extract error', 'error'); }
+    }
+    async _deleteTable(tableId) {
+        if (!await this._confirm('Delete Table', 'Are you sure you want to remove this table?')) return;
+        try {
+            this._setStatus('Deleting table...');
+            const r = await fetch(`/api/v1/processing/tables/${tableId}/`, {
+                method: 'DELETE', headers: { 'X-CSRFToken': this.cfg.csrfToken }
+            });
+            if (r.ok) {
+                await this._loadData();
+                this._loadPage(this.curPage);
+                this._setStatus('Table deleted');
+            } else {
+                this._setStatus('Failed to delete table', 'error');
+            }
+        } catch(e) { this._setStatus('Delete table error', 'error'); }
+    }
+
+    // ── Saving ────────────────────────────────────────────────
+
+    async _updateBlockText(blockId, text, skipHistory = false) {
+        const el = document.getElementById(`aw-blk-${blockId}`);
+        if (el) el.innerText = text;
+        return this._saveBlock(blockId, text);
+    }
+
+    async _saveBlock(blockId, text) {
+        try {
+            const r = await fetch(`/api/v1/processing/blocks/${blockId}/save/`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': this.cfg.csrfToken },
+                body: JSON.stringify({ text })
+            });
+            if (r.ok) {
+                this._setStatus('Saved');
+                await this._loadData();
+            } else {
+                this._setStatus('Save failed', 'error');
+            }
+        } catch(e) { this._setStatus('Network error', 'error'); }
+    }
+
+    async _updateBlockType(blockId, newType) {
+        this._setStatus(`Converting to ${newType}…`);
+        try {
+            const r = await fetch(`/api/v1/processing/blocks/${blockId}/save/`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': this.cfg.csrfToken },
+                body: JSON.stringify({ block_type: newType })
+            });
+            if (r.ok) {
+                this._setStatus('Classification updated');
+                await this._loadData();
+                await this._loadPage(this.curPage);
+            }
+        } catch(e) { this._setStatus('Update failed', 'error'); }
+    }
+
+    async _deleteBlock(blockId) {
+        if (!await this._confirm('Delete Area', 'Are you sure you want to delete this area?')) return;
+        this._setStatus('Deleting…');
+        try {
+            const r = await fetch(`/api/v1/processing/blocks/${blockId}/save/`, {
+                method: 'DELETE',
+                headers: { 'X-CSRFToken': this.cfg.csrfToken }
+            });
+            if (r.ok) {
+                this._setStatus('Deleted');
+                await this._loadData();
+                await this._loadPage(this.curPage);
+            }
+        } catch(e) { this._setStatus('Delete failed', 'error'); }
+    }
+
+    async _updateBlockUnderline(blockId, isUnderlined) {
+        this._setStatus('Updating…');
+        try {
+            const r = await fetch(`/api/v1/processing/blocks/${blockId}/save/`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': this.cfg.csrfToken },
+                body: JSON.stringify({ is_underlined: isUnderlined })
+            });
+            if (r.ok) {
+                this._setStatus('Underline updated');
+                await this._loadData();
+                await this._loadPage(this.curPage);
+            }
+        } catch(e) { this._setStatus('Underline update failed', 'error'); }
+    }
+
+    async _deleteImage(imageId) {
+        if (!await this._confirm('Delete Image Area', 'Are you sure you want to completely delete this image area?')) return;
+        this._setStatus('Deleting image...');
+        try {
+            const r = await fetch(`/api/v1/processing/images/${imageId}/`, {
+                method: 'DELETE', headers: { 'X-CSRFToken': this.cfg.csrfToken }
+            });
+            if (r.ok) {
+                await this._loadData();
+                this._loadPage(this.curPage);
+                this._setStatus('Image Area deleted');
+            } else {
+                this._setStatus('Failed to delete image', 'error');
+            }
+        } catch(e) { this._setStatus('Delete image error', 'error'); }
+    }
+
+    async _saveCell(tableId, row, col, text, props = {}) {
+        try {
+            this._setStatus('Saving cell…');
+            const payload = { row, col, text, table_id: tableId, ...props };
+            const r = await fetch(`/api/v1/processing/tables/${tableId}/cell/save/`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': this.cfg.csrfToken },
+                body: JSON.stringify(payload)
+            });
+            if (r.ok) {
+                this._setStatus('Cell saved');
+            } else {
+                const err = await r.json().catch(() => ({}));
+                this._setStatus('Cell save failed: ' + (err.detail || r.status), 'error');
+            }
+        } catch(e) {
+            this._setStatus('Cell save error: ' + e.message, 'error');
+        }
+    }
+
+    _saveAll() {
+        const page = this.pages[this.curPage];
+        if (!page) return;
+
+        this._setStatus('Saving blocks & tables…');
+        
+        // 1. Blocks
+        Object.entries(this.pendingSaves).forEach(([id, timer]) => {
+            clearTimeout(timer);
+            const el = document.getElementById(`aw-blk-${id}`);
+            if (el) this._saveBlock(id, el.textContent);
+        });
+        this.pendingSaves = {};
+
+        // 2. Tables
+        if (page.tables && page.tables.length > 0) {
+            page.tables.forEach(tbl => {
+                this._saveTable(tbl);
+            });
+        }
+        
+        setTimeout(() => this._setStatus('All changes saved'), 1000);
+    }
+
+    async _saveTable(tbl) {
+        const page = this.pages[this.curPage];
+        // Collect current DOM cell values into tbl.table_json before sending,
+        // so we always send the user's latest edits even if the in-memory sync missed any.
+        const wrap = document.querySelector(`.aw-table-wrap[data-table-id="${tbl.id}"]`);
+        if (wrap) {
+            const domRows = wrap.querySelectorAll('table.aw-table tr');
+            domRows.forEach((tr, rIdx) => {
+                const domCells = tr.querySelectorAll('td');
+                domCells.forEach((td, cIdx) => {
+                    if (!tbl.table_json) tbl.table_json = [];
+                    while (tbl.table_json.length <= rIdx) tbl.table_json.push([]);
+                    const row = tbl.table_json[rIdx];
+                    while (row.length <= cIdx) row.push({ text: '', indent: 0 });
+                    if (typeof row[cIdx] === 'object' && row[cIdx] !== null) {
+                        row[cIdx].text = td.textContent;
+                    } else {
+                        row[cIdx] = { text: td.textContent, indent: 0 };
+                    }
+                });
+            });
+        }
+        try {
+            const resp = await fetch(`/api/v1/processing/pages/${page.id}/tables/save/`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': this.cfg.csrfToken },
+                body: JSON.stringify(tbl)
+            });
+            if (resp.ok) {
+                const result = await resp.json();
+                if (result.table_ref && result.table_ref !== tbl.table_ref) {
+                    const oldRef = tbl.table_ref;
+                    tbl.table_ref = result.table_ref;
+                    
+                    // Update any blocks that were pointing to the old placeholder ID
+                    if (page.blocks) {
+                        page.blocks.forEach(b => {
+                            if (b.table_id === oldRef) b.table_id = result.table_ref;
+                        });
+                    }
+                    
+                    // Update DOM elements if they used the old ref in their ID or data
+                    document.querySelectorAll(`[data-table-ref="${oldRef}"]`).forEach(el => {
+                        el.dataset.tableRef = result.table_ref;
+                    });
+                }
+            }
+        } catch(e) {
+            console.error('[AW] Table save failed:', e);
+        }
+    }
+
+    _startAutoSave() {
+        // Broadcast via WS periodically
+        this._connectWebSocket();
+    }
+
+    // ── History ──────────────────────────────────────────────
+    _pushAction(action) {
+        this.undoStack.push(action);
+        if (this.undoStack.length > this.historyLimit) this.undoStack.shift();
+        this.redoStack = []; // Clear redo stack on new action
+        this._updateHistoryButtons();
+    }
+
+    _updateHistoryButtons() {
+        const btnUndo = document.getElementById('btn-undo');
+        const btnRedo = document.getElementById('btn-redo');
+        if (btnUndo) btnUndo.disabled = (this.undoStack.length === 0);
+        if (btnRedo) btnRedo.disabled = (this.redoStack.length === 0);
+    }
+
+    async _undo() {
+        if (this.undoStack.length === 0) return;
+        const action = this.undoStack.pop();
+        this.redoStack.push(action);
+        this._setStatus('Undo: ' + (action.label || 'Action'));
+        await action.undo(true); // pass skipHistory=true
+        this._updateHistoryButtons();
+    }
+
+    async _redo() {
+        if (this.redoStack.length === 0) return;
+        const action = this.redoStack.pop();
+        this.undoStack.push(action);
+        this._setStatus('Redo: ' + (action.label || 'Action'));
+        await action.redo(true); // pass skipHistory=true
+        this._updateHistoryButtons();
+    }
+
+    // ── Actions ───────────────────────────────────────────────
+    async _analyze() {
+        const p = this.pages[this.curPage];
+        if (!p) return;
+        const btn = document.getElementById('btn-analyze');
+        if (btn) btn.disabled = true;
+        this._setStatus('Analyzing layout...', 'loading');
+        try {
+            const r = await fetch(`/api/v1/processing/pages/${p.id}/analyze/`, {
+                method: 'POST', 
+                headers: { 'X-CSRFToken': this.cfg.csrfToken }
+            });
+            if (r.ok) {
+                this._setStatus('Layout analysis complete');
+                await this._loadData();
+                await this._loadPage(this.curPage);
+            } else {
+                this._setStatus('Analyze failed', 'error');
+            }
+        } catch(e) { 
+            console.error('[AW] Analyze error:', e);
+            this._setStatus('Error during analysis', 'error'); 
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    }
+
+    async _recognize() {
+        const p = this.pages[this.curPage];
+        if (!p) return;
+        const btn = document.getElementById('btn-recognize');
+        if (btn) btn.disabled = true;
+        this._setStatus('Reconstructing logical layout...', 'loading');
+        try {
+            const r = await fetch(`/api/v1/processing/pages/${p.id}/recognize/`, {
+                method: 'POST', 
+                headers: { 'X-CSRFToken': this.cfg.csrfToken }
+            });
+            if (r.ok) {
+                this._setStatus('High-fidelity reconstruction complete');
+                await this._loadData();
+                await this._loadPage(this.curPage);
+            } else {
+                this._setStatus('Recognize failed', 'error');
+            }
+        } catch(e) { 
+            console.error('[AW] Recognize error:', e);
+            this._setStatus('Error during recognition', 'error'); 
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    }
+
+    async _submitBlock() {
+        this._setStatus('Submitting…');
+        try {
+            const firstPage = this.pages[0]?.page_number || this.cfg.pageNumber;
+            const r = await fetch(`/api/v1/processing/workspace/content/${this.cfg.docRef}/${firstPage}/submit/`, {
+                method: 'POST', headers: { 'X-CSRFToken': this.cfg.csrfToken }
+            });
+            const d = await r.json();
+            if (r.ok && (d.status === 'submitted' || d.block_completed > 0)) {
+                this._setStatus('Submitted!');
+                setTimeout(() => {
+                    window.location.href = this.cfg.role === 'ADMIN' ? '/admin/documents/' : '/resource/fetch/';
+                }, 1500);
+            } else {
+                this._setStatus('Submission failed: ' + (d.message || r.status), 'error');
+            }
+        } catch(e) { this._setStatus('Network error', 'error'); }
+    }
+
+    // ── WebSocket ─────────────────────────────────────────────
+    _connectWebSocket() {
+        try {
+            const url = `${this.cfg.wsProtocol}${location.host}/ws/workspace/${this.cfg.docRef}/${this.cfg.pageNumber}/`;
+            this.socket = new WebSocket(url);
+            this.socket.onmessage = (e) => {
+                const d = JSON.parse(e.data);
+                if (d.type === 'save_confirmation') this._setStatus('Saved');
+            };
+        } catch(e) { console.warn('[AW] WS error:', e); }
+    }
+
+    // ── Toolbar binding ───────────────────────────────────────
+    _bindToolbar() {
+        // Tool buttons
+        document.querySelectorAll('[data-tool]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('[data-tool]').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                this.tool = btn.dataset.tool;
+                this.els.imgScroll.style.cursor = this.tool === 'select' ? 'default' : 'crosshair';
+            });
+        });
+
+        document.getElementById('btn-save'   )?.addEventListener('click', () => this._saveAll());
+        document.getElementById('btn-analyze')?.addEventListener('click', () => this._analyze());
+        document.getElementById('btn-recognize')?.addEventListener('click', () => this._recognize());
+        document.getElementById('btn-export')?.addEventListener('click', () => this._exportDoc());
+        document.getElementById('btn-copy-doc')?.addEventListener('click', () => this._copyDocToClipboard());
+        
+        // Keyboard shortcuts
+        window.addEventListener('keydown', (e) => {
+            if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'z') {
+                e.preventDefault();
+                this._undo();
+            }
+            if ((e.ctrlKey && e.key.toLowerCase() === 'y') || (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'z')) {
+                e.preventDefault();
+                this._redo();
+            }
+        });
+
+        document.getElementById('btn-submit')?.addEventListener('click', async () => {
+            const confirmed = await this._confirm(
+                'Submit Assignment?',
+                'This will submit all pages in your assigned block for admin review. You will not be able to make further edits once submitted.'
+            );
+            if (confirmed) this._submitBlock();
+        });
+
+        document.getElementById('btn-zoom-in')?.addEventListener('click', () => {
+            this.zoom = Math.min(3.0, this.zoom + 0.1);
+            this.els.zoomLabel.textContent = Math.round(this.zoom * 100) + '%';
+            this._loadPage(this.curPage);
+        });
+        document.getElementById('btn-zoom-out')?.addEventListener('click', () => {
+            this.zoom = Math.max(0.3, this.zoom - 0.1);
+            this.els.zoomLabel.textContent = Math.round(this.zoom * 100) + '%';
+            this._loadPage(this.curPage);
+        });
+
+        document.getElementById('btn-dual')?.addEventListener('click', () => {
+            this.els.editorPane.style.display = '';
+            this.els.divider.style.display    = '';
+            document.getElementById('btn-dual').classList.add('active');
+            document.getElementById('btn-single').classList.remove('active');
+        });
+        document.getElementById('btn-single')?.addEventListener('click', () => {
+            this.els.editorPane.style.display = 'none';
+            this.els.divider.style.display    = 'none';
+            document.getElementById('btn-single').classList.add('active');
+            document.getElementById('btn-dual').classList.remove('active');
+        });
+
+        // Global Shortcuts (Ctrl+S for Save)
+        document.addEventListener('keydown', (e) => {
+            if (e.ctrlKey && e.key.toLowerCase() === 's') { 
+                e.preventDefault(); 
+                this._saveAll(); 
+            }
+        });
+    }
+
+    // ── Divider drag ──────────────────────────────────────────
+    _bindDivider() {
+        const div = this.els.divider;
+        let dragging = false;
+
+        div.addEventListener('mousedown', (e) => {
+            dragging = true;
+            div.classList.add('dragging');
+            e.preventDefault();
+        });
+        document.addEventListener('mousemove', (e) => {
+            if (!dragging) return;
+            const vp = document.getElementById('aw-viewport').getBoundingClientRect();
+            const pct = ((e.clientX - vp.left) / vp.width) * 100;
+            if (pct > 15 && pct < 85) {
+                document.getElementById('img-pane').style.flex = `0 0 ${pct}%`;
+            }
+        });
+        document.addEventListener('mouseup', () => {
+            dragging = false;
+            div.classList.remove('dragging');
+        });
+    }
+
+    // ── Status helpers ────────────────────────────────────────
+    _setStatus(msg, type) {
+        this.els.footerStatus.textContent = msg;
+        this.els.saveStatusText.textContent = msg;
+        if (type === 'error') {
+            this.els.footerStatus.style.color = '#ef4444';
+            setTimeout(() => this.els.footerStatus.style.color = '', 3000);
+        }
+    }
+
+    // ── Formatting Logic (ABBYY Style) ────────────────────────
+    _bindFormattingTools() {
+        // Dropdowns
+        document.getElementById('fmt-style')?.addEventListener('change', (e) => this._applyFormatting('block_type', e.target.value));
+        document.getElementById('fmt-font' )?.addEventListener('change', (e) => this._applyFormatting('font_name', e.target.value));
+        document.getElementById('fmt-size' )?.addEventListener('change', (e) => this._applyFormatting('font_size', e.target.value));
+
+        // Format buttons
+        document.getElementById('fmt-bold' )?.addEventListener('click', () => {
+            const isBold = this.selectedBlockData?.font_weight === 'bold';
+            this._applyFormatting('font_weight', isBold ? 'normal' : 'bold');
+        });
+        document.getElementById('fmt-italic')?.addEventListener('click', () => {
+            const isItalic = this.selectedBlockData?.font_style === 'italic';
+            this._applyFormatting('font_style', isItalic ? 'normal' : 'italic');
+        });
+        document.getElementById('fmt-underline')?.addEventListener('click', () => {
+            const isUnd = this.selectedBlockData?.is_underlined;
+            this._applyFormatting('is_underlined', !isUnd);
+        });
+
+        // Super/Sub
+        document.getElementById('fmt-super')?.addEventListener('click', () => {
+             const cur = this.selectedBlockData?.font_variant;
+             this._applyFormatting('font_variant', cur === 'superscript' ? 'normal' : 'superscript');
+        });
+        document.getElementById('fmt-sub')?.addEventListener('click', () => {
+             const cur = this.selectedBlockData?.font_variant;
+             this._applyFormatting('font_variant', cur === 'subscript' ? 'normal' : 'subscript');
+        });
+
+        // Alignment
+        document.querySelectorAll('[data-align]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                this._applyFormatting('text_align', btn.dataset.align);
+            });
+        });
+
+        // Lists & Indent
+        document.getElementById('fmt-bullets')?.addEventListener('click', () => {
+            this._setStatus('Bullet points applied (visual only)');
+        });
+        document.getElementById('fmt-indent')?.addEventListener('click', () => {
+             const cur = parseInt(this.selectedBlockData?.indent || 0);
+             this._applyFormatting('indent', cur + 20);
+        });
+
+        // Verification
+        document.getElementById('btn-verify')?.addEventListener('click', () => this._verifyBlocks());
+    }
+
+    _syncFormattingRibbon() {
+        const fmtGroup = document.getElementById('fmt-group');
+        if (!this.selectedBlockData) {
+            if (fmtGroup) {
+                fmtGroup.style.opacity = '0.5';
+                fmtGroup.style.pointerEvents = 'none';
+            }
+            return;
+        }
+        if (fmtGroup) {
+            fmtGroup.style.opacity = '1';
+            fmtGroup.style.pointerEvents = 'auto';
+        }
+
+        const blk = this.selectedBlockData;
+        const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
+        const setAct = (id, act) => { const el = document.getElementById(id); if (el) el.classList.toggle('active', act); };
+
+        setVal('fmt-style', blk.block_type === 'table_cell' ? 'text' : blk.block_type);
+        setVal('fmt-font',  blk.font_name || 'Arial');
+        setVal('fmt-size',  Math.round(blk.font_size || 10));
+
+        setAct('fmt-bold',       blk.font_weight === 'bold');
+        setAct('fmt-italic',     blk.font_style  === 'italic');
+        setAct('fmt-underline',  blk.is_underlined);
+        setAct('fmt-super',      blk.font_variant === 'superscript');
+        setAct('fmt-sub',        blk.font_variant === 'subscript');
+
+        document.querySelectorAll('[data-align]').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.align === blk.text_align);
+        });
+    }
+
+    async _applyFormatting(prop, val, skipHistory = false) {
+        if (!this.selectedBlockId) return;
+
+        // Table Cell Context Handling
+        if (this.selectedCellContext) {
+            const ctx = this.selectedCellContext;
+            const scX = this.zoom;
+            
+            // Find the physical TD in the DOM
+            const rowEl = document.querySelector(`[data-table-ref="${ctx.tableRef}"] tr:nth-child(${ctx.row + 1})`);
+            const targetTd = rowEl ? rowEl.querySelectorAll('td')[ctx.col] : null;
+
+            if (targetTd) {
+                switch(prop) {
+                    case 'font_weight': targetTd.style.fontWeight = val; break;
+                    case 'font_style':  targetTd.style.fontStyle  = val; break;
+                    case 'font_size':   targetTd.style.fontSize   = Math.round(val * scX) + 'px'; break;
+                    case 'text_align':  targetTd.style.textAlign  = val; break;
+                    case 'is_underlined': targetTd.style.textDecoration = val ? 'underline' : 'none'; break;
+                }
+            }
+
+            // Update in-memory data
+            if (ctx.tblObj.table_json && ctx.tblObj.table_json[ctx.row]) {
+                const cell = ctx.tblObj.table_json[ctx.row][ctx.col];
+                if (typeof cell === 'object') {
+                    cell[prop] = val;
+                }
+            }
+            if (this.selectedBlockData) {
+                this.selectedBlockData[prop] = val;
+                this._syncFormattingRibbon();
+            }
+
+            // Persist to server using _saveCell
+            const saveProps = {};
+            saveProps[prop] = val;
+            this._saveCell(ctx.tableRef, ctx.row, ctx.col, null, saveProps);
+            return;
+        }
+
+        const oldVal = this.selectedBlockData ? this.selectedBlockData[prop] : null;
+        if (!skipHistory && oldVal !== val) {
+            const blockId = this.selectedBlockId;
+            this._pushAction({
+                label: `Format ${prop}`,
+                undo: () => this._applyFormatting(prop, oldVal, true),
+                redo: () => this._applyFormatting(prop, val, true)
+            });
+        }
+        
+        const el = document.getElementById(`aw-blk-${this.selectedBlockId}`);
+        const scX = this.zoom;
+        
+        // 1. Optimistic UI update
+        if (el) {
+            switch(prop) {
+                case 'block_type':
+                    el.classList.remove('type-text', 'type-header', 'type-caption', 'type-footer');
+                    el.classList.add(`type-${val}`);
+                    break;
+                case 'font_name':
+                    el.style.fontFamily = `"${val}", sans-serif`;
+                    break;
+                case 'font_size':
+                    el.style.fontSize = Math.round(val * scX) + 'px';
+                    break;
+                case 'font_weight':
+                    el.style.fontWeight = val;
+                    break;
+                case 'font_style':
+                    el.style.fontStyle = val;
+                    break;
+                case 'text_align':
+                    el.style.textAlign = val;
+                    break;
+                case 'is_underlined':
+                    el.style.textDecoration = val ? 'underline' : 'none';
+                    break;
+                case 'font_variant':
+                    if (val === 'superscript') {
+                        el.style.verticalAlign = 'super';
+                        el.style.fontSize = Math.round((this.selectedBlockData.font_size || 10) * scX * 0.7) + 'px';
+                    } else if (val === 'subscript') {
+                        el.style.verticalAlign = 'sub';
+                        el.style.fontSize = Math.round((this.selectedBlockData.font_size || 10) * scX * 0.7) + 'px';
+                    } else {
+                        el.style.verticalAlign = 'baseline';
+                        el.style.fontSize = Math.round((this.selectedBlockData.font_size || 10) * scX) + 'px';
+                    }
+                    break;
+            }
+        }
+
+        // 2. Local state update
+        if (this.selectedBlockData) {
+            this.selectedBlockData[prop] = val;
+            this._syncFormattingRibbon();
+        }
+
+        // 3. Persist to server
+        try {
+            const payload = {};
+            payload[prop] = val;
+            
+            const r = await fetch(`/api/v1/processing/blocks/${this.selectedBlockId}/save/`, {
+                method: 'PATCH',
+                headers: { 
+                    'Content-Type': 'application/json', 
+                    'X-CSRFToken': this.cfg.csrfToken 
+                },
+                body: JSON.stringify(payload)
+            });
+            if (r.ok) {
+                this._setStatus('Changes saved');
+            } else {
+                throw new Error('Server returned error');
+            }
+        } catch (e) {
+            console.error('[AW] Save formatting error:', e);
+            this._setStatus('Failed to save formatting', 'error');
+        }
+    }
+
+    _verifyBlocks() {
+        const blocks = [...document.querySelectorAll('.aw-block[contenteditable="true"]')];
+        if (blocks.length === 0) return;
+        
+        // Find current or start at 0
+        let index = blocks.findIndex(el => el.dataset.id === this.selectedBlockId);
+        if (index === -1 || index >= blocks.length - 1) index = 0;
+        else index++; // Next one
+
+        const el = blocks[index];
+        this._scrollEditorTo(el);
+        el.focus();
+        
+        this._setStatus(`Verifying ${index + 1} / ${blocks.length}`);
+        
+        // Pulse effect for focus
+        el.style.boxShadow = '0 0 0 4px rgba(37,99,235,0.4)';
+        setTimeout(() => el.style.boxShadow = '', 1000);
+    }
+
+    async _copyDocToClipboard() {
+        const blocks = document.querySelectorAll('.ocr-block');
+        if (blocks.length === 0) {
+            this._setStatus('No text to copy', 'warning');
+            return;
+        }
+
+        let fullText = "";
+        // Sort blocks by y then x for logical reading order
+        const sortedBlocks = Array.from(blocks).sort((a, b) => {
+            const rectA = a.getBoundingClientRect();
+            const rectB = b.getBoundingClientRect();
+            if (Math.abs(rectA.top - rectB.top) < 10) return rectA.left - rectB.left;
+            return rectA.top - rectB.top;
+        });
+
+        sortedBlocks.forEach(blk => {
+            const txt = blk.innerText.trim();
+            if (txt) fullText += txt + "\n";
+        });
+
+        try {
+            await navigator.clipboard.writeText(fullText);
+            this._setStatus('Full document text copied to clipboard', 'success');
+        } catch (err) {
+            console.error('Failed to copy text: ', err);
+            this._setStatus('Failed to copy text', 'error');
+        }
+    }
+
+    async _exportDoc() {
+        const btn = document.getElementById('btn-export');
+        if (btn) btn.disabled = true;
+        this._setStatus('Generating Word document...', 'loading');
+        try {
+            const url = `/api/v1/processing/workspace/content/${this.cfg.docRef}/${this.cfg.pageNumber}/export/`;
+            
+            const res = await fetch(url, {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': this.cfg.csrfToken 
+                },
+                body: JSON.stringify({ scope: 'block' })
+            });
+            if (!res.ok) {
+                let data = {};
+                try {
+                    data = await res.json();
+                } catch(jsonErr) {
+                    console.error('Failed to parse error JSON:', jsonErr);
+                    data = { error: 'Internal Server Error (Check logs)', traceback: 'The server returned an HTML error page. Check Django logs.' };
+                }
+                const err = new Error('Export failed: ' + (data.error || res.statusText));
+                err.response_data = data;
+                throw err;
+            }
+            const blob = await res.blob();
+            const url_blob = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url_blob;
+            a.download = `export_${this.cfg.docRef}.docx`;
+            a.click();
+            this._setStatus('Document Downloaded');
+        } catch(e) {
+            this._setStatus('Export failed', 'error');
+            console.error('Export Error Detail:', e);
+            let msg = e.message || 'Unknown error';
+            if (e.response_data) {
+                msg = e.response_data.error || msg;
+                console.group('Backend Traceback');
+                console.error('Error:', e.response_data.error);
+                console.error('Traceback:', e.response_data.traceback);
+                console.groupEnd();
+            }
+            alert('CRITICAL: Export Failed\n\n' + msg + '\n\nPlease check the console (F12) for the full traceback.');
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    }
+    _confirm(title, body) {
+        return new Promise((resolve) => {
+            const modal = document.getElementById('confirm-modal');
+            const tEl = document.getElementById('confirm-modal-title');
+            const bEl = document.getElementById('confirm-modal-body');
+            const okBtn = document.getElementById('confirm-modal-ok');
+            const cnBtn = document.getElementById('confirm-modal-cancel');
+
+            tEl.textContent = title;
+            bEl.textContent = body;
+            modal.classList.add('open');
+
+            const cleanup = (val) => {
+                modal.classList.remove('open');
+                okBtn.onclick = null;
+                cnBtn.onclick = null;
+                resolve(val);
+            };
+
+            okBtn.onclick = () => cleanup(true);
+            cnBtn.onclick = () => cleanup(false);
+        });
+    }
+
+    _showContextMenu(x, y, items) {
+        const menu = document.getElementById('aw-context-menu');
+        menu.innerHTML = '';
+        menu.style.display = 'block';
+        menu.style.left = `${x}px`;
+        menu.style.top  = `${y}px`;
+
+        items.forEach(it => {
+            if (it.sep) {
+                const sep = document.createElement('div');
+                sep.className = 'ctx-sep';
+                menu.appendChild(sep);
+                return;
+            }
+            const el = document.createElement('div');
+            el.className = 'ctx-item' + (it.danger ? ' danger' : '');
+            el.innerHTML = `<i class="${it.icon}"></i> ${it.label}`;
+            el.onclick = () => {
+                it.action();
+                menu.style.display = 'none';
+            };
+            menu.appendChild(el);
+        });
+
+        const hideMenu = () => {
+            menu.style.display = 'none';
+            document.removeEventListener('click', hideMenu);
+        };
+        setTimeout(() => document.addEventListener('click', hideMenu), 10);
+    }
+}
+
+// ─── Bootstrap ───────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+    window.aw_ws = new AbbyyWorkspace(AWConfig);
+    window.aw_ws.init().catch(e => console.error('[AW] Init failed:', e));
+});
+
+</script>
+    <!-- Table Context Menu -->
+    <div id="table-context-menu" class="context-menu" style="display:none; position: fixed; z-index: 10000; background: white; border: 1px solid #ccc; box-shadow: 2px 2px 5px rgba(0,0,0,0.2); min-width: 150px;">
+        <ul style="list-style: none; margin: 0; padding: 5px 0;">
+            <li class="menu-item" id="ctx-add-row-above" style="padding: 8px 15px; cursor: pointer; display: flex; align-items: center; font-size: 13px;">
+                <i class="fas fa-arrow-up me-2" style="width:16px;"></i> Add Row Above
+            </li>
+            <li class="menu-item" id="ctx-add-row-below" style="padding: 8px 15px; cursor: pointer; display: flex; align-items: center; font-size: 13px;">
+                <i class="fas fa-arrow-down me-2" style="width:16px;"></i> Add Row Below
+            </li>
+            <li class="rbn-sep" style="height:1px; background:#eee; margin:5px 0;"></li>
+            <li class="menu-item" id="ctx-add-col-left" style="padding: 8px 15px; cursor: pointer; display: flex; align-items: center; font-size: 13px;">
+                <i class="fas fa-arrow-left me-2" style="width:16px;"></i> Add Column Left
+            </li>
+            <li class="menu-item" id="ctx-add-col-right" style="padding: 8px 15px; cursor: pointer; display: flex; align-items: center; font-size: 13px;">
+                <i class="fas fa-arrow-right me-2" style="width:16px;"></i> Add Column Right
+            </li>
+            <li class="rbn-sep" style="height:1px; background:#eee; margin:5px 0;"></li>
+            <li class="menu-item" id="ctx-del-row" style="padding: 8px 15px; cursor: pointer; display: flex; align-items: center; font-size: 13px; color: #dc2626;">
+                <i class="fas fa-trash-alt me-2" style="width:16px;"></i> Delete Row
+            </li>
+            <li class="menu-item" id="ctx-del-col" style="padding: 8px 15px; cursor: pointer; display: flex; align-items: center; font-size: 13px; color: #dc2626;">
+                <i class="fas fa-trash-alt me-2" style="width:16px;"></i> Delete Column
+            </li>
+        </ul>
+    </div>
+
+    <style>
+        .context-menu .menu-item:hover {
+            background-color: #f1f5f9;
+        }
+
+        /* Resize Handles */
+        .resizer {
+            position: absolute;
+            width: 8px;
+            height: 8px;
+            background: white;
+            border: 1px solid #3b82f6;
+            z-index: 10;
+        }
+        .resizer.n  { top: -4px; left: 50%; transform: translateX(-50%); cursor: n-resize; }
+        .resizer.s  { bottom: -4px; left: 50%; transform: translateX(-50%); cursor: s-resize; }
+        .resizer.e  { right: -4px; top: 50%; transform: translateY(-50%); cursor: e-resize; }
+        .resizer.w  { left: -4px; top: 50%; transform: translateY(-50%); cursor: w-resize; }
+        .resizer.nw { top: -4px; left: -4px; cursor: nw-resize; }
+        .resizer.ne { top: -4px; right: -4px; cursor: ne-resize; }
+        .resizer.sw { bottom: -4px; left: -4px; cursor: sw-resize; }
+        .resizer.se { bottom: -4px; right: -4px; cursor: se-resize; }
+        
+        .area-rect:hover {
+            border: 2px solid #3b82f6 !important;
+        }
+        .area-rect.selected {
+            border: 2px solid #2563eb !important;
+            box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+        }
+
+        /* Internal Grid Lines */
+        .grid-line {
+            position: absolute;
+            background: rgba(37, 99, 235, 0.4);
+            z-index: 5;
+        }
+        .grid-line.vertical {
+            width: 4px;
+            height: 100%;
+            cursor: col-resize;
+            margin-left: -2px;
+        }
+        .grid-line.horizontal {
+            height: 4px;
+            width: 100%;
+            cursor: row-resize;
+            margin-top: -2px;
+        }
+        .grid-line:hover {
+            background: #2563eb;
+        }
+
+        /* Floating Toolbar */
+        .area-toolbar {
+            position: absolute;
+            top: -38px;
+            left: 0;
+            background: #1f2937;
+            border-radius: 6px;
+            display: flex;
+            padding: 4px;
+            gap: 2px;
+            z-index: 100;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+            border: 1px solid #374151;
+        }
+        .area-toolbar button {
+            background: transparent;
+            border: none;
+            color: #f3f4f6;
+            width: 28px;
+            height: 28px;
+            cursor: pointer;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+        .area-toolbar button:hover {
+            background: #374151;
+            color: #60a5fa;
+        }
+        .area-toolbar button.danger:hover {
+            color: #ef4444;
+        }
+        .area-toolbar i {
+            font-size: 14px;
+        }
+    </style>
+</body>
+</html>

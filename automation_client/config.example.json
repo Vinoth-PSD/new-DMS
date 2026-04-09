@@ -1,0 +1,9 @@
+{
+  "base_url": "http://127.0.0.1:8000",
+  "download_folder": "C:\\DocPro\\downloads",
+  "upload_folder": "C:\\DocPro\\upload",
+  "poll_seconds": 5,
+  "watch_seconds": 2,
+  "abbyy_exe_path": "",
+  "process_triggered_open_only": true
+}

@@ -1,0 +1,120 @@
+<!-- This template extends the base layout and provides the document upload interface for clients -->
+{% extends 'base.html' %}
+
+{% block title %}Upload Document - DocPro Client{% endblock %}
+
+{% block content %}
+<div class="layout-centered">
+    <div class="card" style="width: 100%; max-width: 600px;">
+        <div class="card-header">
+            <h3>📤 Upload New Document</h3>
+        </div>
+        <div class="card-body">
+            <!-- Form for document upload, uses FormData for file handling -->
+            <form id="upload-form" enctype="multipart/form-data">
+                {% csrf_token %}
+
+                <div class="form-group">
+                    <label for="pdf_file" class="form-label">Select PDF or Word Document</label>
+                    <input type="file" name="file" id="pdf_file" class="form-control" 
+                        accept="application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" 
+                        required>
+                    <div class="form-text">Max size 10MB. PDF and Word (.doc, .docx) files are supported.</div>
+                </div>
+
+                <div class="form-group"
+                    style="display: flex; gap: 1rem; align-items: center; justify-content: space-between; margin-top: 2rem;">
+                    <button type="submit" class="btn btn-primary" id="upload-btn">
+                        Start Processing
+                    </button>
+                    <a href="{% url 'client_status' %}" class="btn btn-secondary">View My Documents</a>
+                </div>
+            </form>
+            
+            <!-- Hidden progress container that shows during upload -->
+            <div id="progress-container" style="display: none; margin-top: 1.5rem;">
+                <div
+                    style="height: 0.5rem; width: 100%; background-color: #e2e8f0; border-radius: 9999px; overflow: hidden;">
+                    <div id="progress-bar"
+                        style="height: 100%; width: 0%; background-color: var(--primary-color); transition: width 0.3s;">
+                    </div>
+                </div>
+                <div style="text-align: center; font-size: 0.75rem; color: #64748b; margin-top: 0.5rem;">Uploading...
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    /*
+     * Client-side logic for file validation and asynchronous upload
+     */
+    const form = document.getElementById('upload-form');
+    const statusMsg = document.getElementById('status-msg');
+    const progressContainer = document.getElementById('progress-container');
+    const progressBar = document.getElementById('progress-bar');
+    const uploadBtn = document.getElementById('upload-btn');
+    const fileInput = document.getElementById('pdf_file');
+
+    fileInput.addEventListener('change', function () {
+        const file = this.files[0];
+        if (file) {
+            const validTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+            const validExtensions = ['.pdf', '.doc', '.docx'];
+            const fileName = file.name.toLowerCase();
+            const isValidExtension = validExtensions.some(ext => fileName.endsWith(ext));
+
+            if (!validTypes.includes(file.type) && !isValidExtension) {
+                showToast('Invalid file format. Please select a PDF or Word document.', 'error');
+                this.value = ''; // Clear selection
+            } else if (file.size > 10 * 1024 * 1024) {
+                showToast('File size exceeds 10MB limit.', 'error');
+                this.value = '';
+            }
+        }
+    });
+
+    /* Handle form submission via AJAX */
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        // UI Reset
+        progressContainer.style.display = 'block';
+        progressBar.style.width = '10%';
+        uploadBtn.disabled = true;
+        uploadBtn.textContent = 'Uploading...';
+
+        const formData = new FormData(form);
+
+        try {
+            const response = await fetch('/api/v1/documents/', {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                },
+                body: formData
+            });
+
+            if (response.ok) {
+                progressBar.style.width = '100%';
+                showToast('Document uploaded successfully! Redirecting...', 'success');
+                setTimeout(() => {
+                    window.location.href = "{% url 'client_status' %}";
+                }, 1500);
+            } else {
+                const result = await response.json();
+                progressBar.style.width = '0%';
+                progressContainer.style.display = 'none';
+                showToast(result.detail || 'Upload failed.', 'error');
+                uploadBtn.disabled = false;
+                uploadBtn.textContent = 'Start Processing';
+            }
+        } catch (err) {
+            console.error(err);
+            showToast('Network error occurred.', 'error');
+            uploadBtn.disabled = false;
+        }
+    });
+</script>
+{% endblock %}

@@ -1,0 +1,495 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Upload Document - Admin Dashboard{% endblock %}
+
+{% block content %}
+<div class="ac-dashboard-container">
+    <div class="ac-page-header">
+        <div class="header-left">
+            <h1 class="ac-page-title " style="padding:1rem; margin:1rem" >Upload New Document</h1>
+            <!-- <p class="ac-page-subtitle">Ingest ZIP or PDF files for automated processing.</p> -->
+        </div>
+        <div class="header-right">
+            <a href="{% url 'admin_panel:document_list' %}" class="ac-btn ac-btn-outline" style="margin-left:1rem;" >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                    <polyline points="14 2 14 8 20 8"></polyline>
+                </svg>
+                View My Documents
+            </a>
+        </div>
+    </div>
+
+    <div class="ac-content-grid  " style="margin-top:4rem; padding:5px" >
+        <div class="ac-card" style="max-width: 600px; margin: 0 auto; width: 100%;">
+            <div class="ac-card-header "  style="margin:5px; margin-left:12rem; padding:5px" >
+                <h3 class="ac-card-title"  style="color: #dc2626; font-weight: 700; font-size: 1.5rem;" >SELECT DOCUMENT</h3>
+            </div>
+            <div class="ac-card-body">
+                <form id="upload-form" enctype="multipart/form-data">
+                    {% csrf_token %}
+                    <div class="ac-form-group">
+                        <label for="pdf_file" class="ac-label " style="margin:1rem;  margin-bottom:1rem; padding:8px"  >Upload File (PDF or Word)</label>
+                        <div class="ac-file-upload-container">
+                            <input type="file" name="original_file" id="pdf_file" class="ac-file-input" 
+                                accept="application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                                required>
+                            <div class="ac-file-upload-box">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                    <polyline points="17 8 12 3 7 8"></polyline>
+                                    <line x1="12" y1="3" x2="12" y2="15"></line>
+                                </svg>
+                                <span>Choose a file or drag it here</span>
+                                <small>Max size: 10MB</small>
+                            </div>
+                        </div>
+                        <div id="file-name" class="mt-2 text-primary fw-bold" style="display: none;"></div>
+                    </div>
+
+                    <div style="margin-top: 2rem;">
+                        <button type="submit" class="ac-btn ac-btn-primary w-100" id="upload-btn">
+                            <i class="fas fa-rocket me-2"></i>Start Processing
+                        </button>
+                    </div>
+                </form>
+
+                <div id="progress-container" style="display: none; margin-top: 2rem; border-top: 1px solid #f0f0f2; padding-top: 1.5rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.8rem;">
+                        <span id="progress-label" style="font-weight: 700; font-size: 0.9rem; color: #1a1a1c;">Uploading Document...</span>
+                        <span id="progress-text" style="font-family: 'IBM Plex Mono', monospace; font-weight: 800; color: #dc2626; font-size: 1rem;">0%</span>
+                    </div>
+                    <div class="ac-progress-wrapper"
+                        style="height: 12px; background: rgba(0,0,0,0.05); border-radius: 100px; overflow: hidden; box-shadow: inset 0 1px 3px rgba(0,0,0,0.1);">
+                        <div id="progress-bar"
+                            style="height: 100%; width: 0%; background: linear-gradient(90deg, #dc2626, #ef4444); transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1); position: relative;">
+                            <div style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent); animation: progress-shimmer 2s infinite;"></div>
+                        </div>
+                    </div>
+                    <p id="progress-subtext" style="text-align: center; font-size: 0.75rem; color: #888; margin-top: 0.7rem; font-family: 'IBM Plex Mono', monospace;">
+                        Keep this window open until upload is finished.
+                    </p>
+                </div>
+<style>
+@keyframes progress-shimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+}
+</style>
+            </div>
+            <!-- Conversion cards appear here -->
+            <div id="conversion-container" style="padding: 0 24px 24px;"></div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .ac-file-upload-container {
+        position: relative;
+        cursor: pointer;
+    }
+
+    .ac-file-input {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        opacity: 0;
+        cursor: pointer;
+        z-index: 2;
+    }
+
+    .ac-file-upload-box {
+        border: 2px dashed #ddd;
+        border-radius: 8px;
+        padding: 40px;
+        text-align: center;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+        transition: border-color 0.2s, background-color 0.2s;
+    }
+
+    .ac-file-input:hover+.ac-file-upload-box {
+        border-color: #dc2626;
+        background-color: #fff5f5;
+    }
+
+    .ac-btn-primary.w-100 {
+        width: 100%;
+        justify-content: center;
+        padding: 12px;
+    }
+
+    /* ── Conversion Card ───────────────────────────────────── */
+    .conversion-card {
+        background: #1a1a1c;
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 12px;
+        padding: 20px 24px;
+        margin: 12px 0;
+        position: relative;
+        overflow: hidden;
+        transition: border-color 0.3s ease;
+        text-align: left;
+    }
+    .conversion-card.state-converting { border-color: rgba(59,130,246,0.4); }
+    .conversion-card.state-completed { border-color: rgba(34,197,94,0.4); }
+    .conversion-card.state-failed { border-color: rgba(239,68,68,0.4); }
+
+    .conv-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+    .conv-file-icon {
+        width: 36px; height: 36px; border-radius: 8px;
+        background: rgba(59,130,246,0.12);
+        display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .conv-file-info { flex: 1; min-width: 0; }
+    .conv-filename { font-size: 13px; font-weight: 600; color: #f0f0f2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .conv-filesize { font-size: 11px; color: #888; font-family: 'IBM Plex Mono', monospace; margin-top: 2px; }
+    .conv-status-badge { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; padding: 3px 10px; border-radius: 9999px; white-space: nowrap; flex-shrink: 0; }
+    .badge-converting { background: rgba(59,130,246,0.15); color: #60a5fa; border: 1px solid rgba(59,130,246,0.3); }
+    .badge-completed { background: rgba(34,197,94,0.12); color: #4ade80; border: 1px solid rgba(34,197,94,0.25); }
+    .badge-failed { background: rgba(239,68,68,0.12); color: #f87171; border: 1px solid rgba(239,68,68,0.25); }
+    .badge-pending { background: rgba(255,171,0,0.12); color: #fbbf24; border: 1px solid rgba(255,171,0,0.25); }
+
+    .conv-progress-wrap { margin-bottom: 12px; }
+    .conv-progress-track { width: 100%; height: 6px; background: rgba(255,255,255,0.07); border-radius: 9999px; overflow: hidden; }
+    .conv-progress-fill { height: 100%; border-radius: 9999px; background: linear-gradient(90deg, #3b82f6, #60a5fa); transition: width 0.5s cubic-bezier(0.4,0,0.2,1); width: 0%; position: relative; }
+    .conv-progress-fill::after {
+        content: ''; position: absolute; top: 0; left: -100%; right: 0; bottom: 0;
+        background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.3) 50%, transparent 100%);
+        animation: shimmer 1.5s ease infinite;
+    }
+    @keyframes shimmer { 0% { left: -100%; } 100% { left: 200%; } }
+    .conv-progress-fill.completed { background: linear-gradient(90deg, #22c55e, #4ade80); }
+    .conv-progress-fill.completed::after { display: none; }
+    .conv-progress-fill.failed { background: linear-gradient(90deg, #ef4444, #f87171); }
+    .conv-progress-fill.failed::after { display: none; }
+
+    .conv-stages { display: flex; justify-content: space-between; margin-top: 6px; padding: 0 2px; }
+    .conv-stage { font-size: 9px; font-family: 'IBM Plex Mono', monospace; color: rgba(255,255,255,0.2); text-transform: uppercase; letter-spacing: 0.06em; position: relative; transition: color 0.3s; }
+    .conv-stage.active { color: #60a5fa; }
+    .conv-stage.done { color: rgba(74,222,128,0.7); }
+
+    .conv-message-row { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+    .conv-spinner { width: 14px; height: 14px; border: 2px solid rgba(59,130,246,0.2); border-top-color: #3b82f6; border-radius: 50%; animation: spin 0.75s linear infinite; flex-shrink: 0; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .conv-spinner.hidden { display: none; }
+    .conv-message { font-size: 12px; color: #8888a0; font-family: 'IBM Plex Mono', monospace; flex: 1; transition: color 0.3s; }
+    .conv-message.success { color: #4ade80; }
+    .conv-message.error { color: #f87171; }
+    .conv-percent { font-size: 11px; font-family: 'IBM Plex Mono', monospace; color: #60a5fa; min-width: 36px; text-align: right; font-weight: 700; }
+
+    .conv-actions { display: flex; gap: 8px; margin-top: 14px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,0.06); }
+    .conv-btn {
+        font-size: 11px; font-weight: 700; font-family: 'IBM Plex Mono', monospace; text-transform: uppercase; letter-spacing: 0.07em;
+        padding: 7px 16px; border-radius: 6px; cursor: pointer; border: 1px solid transparent; transition: all 0.15s ease;
+        display: flex; align-items: center; gap: 6px;
+    }
+    .conv-btn:disabled { opacity: 0.35; cursor: not-allowed; pointer-events: none; }
+    .btn-assign { background: #3b82f6; border-color: #3b82f6; color: #fff; box-shadow: 0 2px 10px rgba(59,130,246,0.3); }
+    .btn-assign:hover:not(:disabled) { background: #2563eb; box-shadow: 0 2px 16px rgba(59,130,246,0.5); }
+    .btn-retry { background: rgba(239,68,68,0.12); border-color: rgba(239,68,68,0.3); color: #f87171; }
+    .btn-view { background: transparent; border-color: rgba(255,255,255,0.1); color: #888; }
+
+    @keyframes successFlash { 0% { background: rgba(34,197,94,0.15); } 50% { background: rgba(34,197,94,0.25); } 100% { background: rgba(34,197,94,0.08); } }
+    .conversion-card.flash-success { animation: successFlash 0.8s ease forwards; }
+</style>
+
+<script>
+    // ================================================================
+    // ConversionManager
+    // ================================================================
+    class ConversionManager {
+        constructor(documentId, cardElement) {
+            this.documentId = documentId;
+            this.card = cardElement;
+            this.ws = null;
+            this.stages = [
+                { key: 'STARTED', label: 'Init', progress: 0 },
+                { key: 'READING', label: 'Reading', progress: 20 },
+                { key: 'CONVERTING', label: 'Convert', progress: 40 },
+                { key: 'VALIDATING', label: 'Validate', progress: 70 },
+                { key: 'SAVING', label: 'Saving', progress: 90 },
+                { key: 'COMPLETED', label: 'Done', progress: 100 },
+            ];
+            this.init();
+        }
+
+        init() {
+            this.renderCard();
+            this.connectWebSocket();
+        }
+
+        renderCard() {
+            const filename = this.card.dataset.filename || 'document.docx';
+            const filesize = this.card.dataset.filesize || '';
+            this.card.innerHTML = `
+                <div class="conv-header">
+                    <div class="conv-file-icon">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" stroke-width="2">
+                            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+                            <polyline points="14 2 14 8 20 8"/>
+                        </svg>
+                    </div>
+                    <div class="conv-file-info">
+                        <div class="conv-filename">${filename}</div>
+                        <div class="conv-filesize">${filesize}</div>
+                    </div>
+                    <span class="conv-status-badge badge-pending" data-badge>Pending</span>
+                </div>
+                <div class="conv-progress-wrap">
+                    <div class="conv-progress-track"><div class="conv-progress-fill" data-progress-fill style="width:0%"></div></div>
+                    <div class="conv-stages">
+                        ${this.stages.map(s => `<span class="conv-stage" data-stage="${s.key}">${s.label}</span>`).join('')}
+                    </div>
+                </div>
+                <div class="conv-message-row">
+                    <div class="conv-spinner" data-spinner></div>
+                    <span class="conv-message" data-message>Connecting...</span>
+                    <span class="conv-percent" data-percent>0%</span>
+                </div>
+                <div class="conv-actions">
+                    <button class="conv-btn btn-assign" data-btn-assign disabled>Assign to Resource</button>
+                    <button class="conv-btn btn-retry" data-btn-retry style="display:none">↺ Retry</button>
+                    <button class="conv-btn btn-view" data-btn-view disabled>View</button>
+                </div>
+            `;
+            
+            this.card.querySelector('[data-btn-retry]').onclick = () => this.retry();
+        }
+
+        connectWebSocket() {
+            const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${location.host}/ws/conversion/${this.documentId}/`;
+            this.ws = new WebSocket(wsUrl);
+            this.ws.onmessage = (e) => {
+                const msg = JSON.parse(e.data);
+                this.handleMessage(msg.type, msg.payload || {});
+            };
+            this.ws.onerror = () => this.startPolling();
+        }
+
+        handleMessage(type, payload) {
+            switch (type) {
+                case 'conversion.started': this.onStarted(payload); break;
+                case 'conversion.progress': this.onProgress(payload); break;
+                case 'conversion.completed': this.onCompleted(payload); break;
+                case 'conversion.failed': this.onFailed(payload); break;
+            }
+        }
+
+        onStarted(p) {
+            this.card.className = 'conversion-card state-converting';
+            this.updateBadge('Converting...', 'badge-converting');
+            this.updateProgress(0, 'STARTED');
+        }
+
+        onProgress(p) { this.updateProgress(p.progress, p.stage); this.updateMessage(p.message); }
+
+        onCompleted(p) {
+            if (this.ws) this.ws.close();
+            this.card.className = 'conversion-card state-completed';
+            this.updateProgress(100, 'COMPLETED');
+            this.updateBadge('Converted ✓', 'badge-completed');
+            this.updateMessage('Success!', 'success');
+            this.card.querySelector('[data-spinner]').classList.add('hidden');
+            this.card.classList.add('flash-success');
+            
+            const assignBtn = this.card.querySelector('[data-btn-assign]');
+            assignBtn.disabled = false;
+            assignBtn.onclick = () => this.triggerAutoAssignment(p.doc_ref);
+            
+            const viewBtn = this.card.querySelector('[data-btn-view]');
+            viewBtn.disabled = false;
+            viewBtn.onclick = () => window.location.href = `/admin/documents/${p.doc_ref}/`;
+            
+            setTimeout(() => this.triggerAutoAssignment(p.doc_ref), 2000);
+        }
+
+        onFailed(p) {
+            if (this.ws) this.ws.close();
+            this.card.className = 'conversion-card state-failed';
+            this.updateBadge('Failed', 'badge-failed');
+            this.updateMessage(p.error || 'Failed', 'error');
+            this.card.querySelector('[data-spinner]').classList.add('hidden');
+            this.card.querySelector('[data-btn-retry]').style.display = 'flex';
+        }
+
+        updateProgress(percent, stage) {
+            const fill = this.card.querySelector('[data-progress-fill]');
+            if (fill) fill.style.width = percent + '%';
+            this.card.querySelector('[data-percent]').textContent = percent + '%';
+            const stages = this.card.querySelectorAll('[data-stage]');
+            const idx = this.stages.findIndex(s => s.key === stage);
+            stages.forEach((el, i) => {
+                el.classList.remove('active', 'done');
+                if (i < idx) el.classList.add('done');
+                if (i === idx) el.classList.add('active');
+            });
+        }
+
+        updateBadge(txt, cls) { const b = this.card.querySelector('[data-badge]'); b.textContent = txt; b.className = 'conv-status-badge ' + cls; }
+        updateMessage(txt, type = '') { const m = this.card.querySelector('[data-message]'); m.textContent = txt; m.className = 'conv-message ' + type; }
+
+        async triggerAutoAssignment(docRef) {
+            try {
+                await fetch(`/api/v1/documents/${docRef}/assign-all/`, {
+                    method: 'GET',
+                    headers: { 'X-CSRFToken': '{{ csrf_token }}' }
+                });
+                showAlert('success', 'Document auto-assigned.');
+            } catch (e) { console.error(e); }
+        }
+
+        async retry() {
+            this.card.querySelector('[data-btn-retry]').style.display = 'none';
+            this.card.querySelector('[data-spinner]').classList.remove('hidden');
+            try {
+                const res = await fetch(`/api/v1/documents/${this.documentId}/retry-conversion/`, {
+                    method: 'POST',
+                    headers: { 'X-CSRFToken': '{{ csrf_token }}' }
+                });
+                if (res.ok) this.connectWebSocket();
+                else this.onFailed({ error: 'Retry failed' });
+            } catch (e) { this.onFailed({ error: e.message }); }
+        }
+
+        startPolling() {
+            const timer = setInterval(async () => {
+                const res = await fetch(`/api/v1/documents/conversion-status/${this.documentId}/`);
+                const data = await res.json();
+                if (data.conversion_status === 'CONVERTED') { clearInterval(timer); this.onCompleted({ doc_ref: data.doc_ref }); }
+                else if (data.conversion_status === 'CONVERSION_FAILED') { clearInterval(timer); this.onFailed({ error: data.conversion_error }); }
+            }, 3000);
+        }
+    }
+
+    const form = document.getElementById('upload-form');
+    const progressBar = document.getElementById('progress-bar');
+    const progressText = document.getElementById('progress-text');
+    const progressContainer = document.getElementById('progress-container');
+    const uploadBtn = document.getElementById('upload-btn');
+    const fileInput = document.getElementById('pdf_file');
+    const fileNameDisplay = document.getElementById('file-name');
+
+    fileInput.addEventListener('change', function () {
+        const file = this.files[0];
+        if (file) {
+            const validExtensions = ['.pdf', '.doc', '.docx'];
+            const fileName = file.name.toLowerCase();
+            const isValidExtension = validExtensions.some(ext => fileName.endsWith(ext));
+            const isWord = fileName.endsWith('.doc') || fileName.endsWith('.docx');
+
+            if (!isValidExtension) {
+                showAlert('error', 'Invalid file format. Please select a PDF or Word document.');
+                this.value = '';
+                fileNameDisplay.style.display = 'none';
+            } else if (file.size > 100 * 1024 * 1024) {
+                showAlert('error', 'File size exceeds 100MB limit.');
+                this.value = '';
+                fileNameDisplay.style.display = 'none';
+            } else {
+                if (isWord) {
+                    showAlert('info', 'Word document detected. It will be automatically converted to PDF.');
+                }
+                fileNameDisplay.textContent = 'Selected: ' + file.name;
+                fileNameDisplay.style.display = 'block';
+            }
+        }
+    });
+
+    form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        progressContainer.style.display = 'block';
+        uploadBtn.disabled = true;
+        uploadBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Uploading...';
+
+        const formData = new FormData(form);
+        const file = fileInput.files[0];
+        const isWord = file.name.toLowerCase().endsWith('.doc') || file.name.toLowerCase().endsWith('.docx');
+
+        const xhr = new XMLHttpRequest();
+        const progressLabel = document.getElementById('progress-label');
+        const progressSubtext = document.getElementById('progress-subtext');
+        
+        // --- PROPER UPLOAD PROGRESS TRACKING ---
+        xhr.upload.onprogress = (event) => {
+            if (event.lengthComputable) {
+                const percent = Math.round((event.loaded / event.total) * 100);
+                // Clamp at 99% until server actually confirms save
+                const displayPercent = Math.min(percent, 99);
+                progressBar.style.width = displayPercent + '%';
+                progressText.textContent = displayPercent + '%';
+                
+                if (percent >= 100) {
+                    progressLabel.textContent = 'Processing...';
+                    progressText.textContent = 'Wait';
+                    progressSubtext.textContent = 'Server is splitting the document into pages. This might take a few moments.';
+                    uploadBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Finishing...';
+                } else {
+                    progressLabel.textContent = 'Uploading Document...';
+                    progressSubtext.textContent = `Transferred ${(event.loaded / (1024*1024)).toFixed(1)}MB of ${(event.total / (1024*1024)).toFixed(1)}MB`;
+                }
+            }
+        };
+
+        xhr.onload = async () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+                try {
+                    const result = JSON.parse(xhr.responseText);
+                    progressBar.style.width = '100%';
+                    progressText.textContent = '100%';
+                    progressLabel.textContent = 'Success!';
+                    progressSubtext.textContent = 'Upload and splitting complete.';
+                    showAlert('success', 'Upload complete.');
+
+                    uploadBtn.innerHTML = '<i class="fas fa-check me-2"></i>Uploaded';
+                    setTimeout(() => window.location.href = "{% url 'admin_panel:document_list' %}", 1000);
+                } catch (err) {
+                    console.error("JSON Parse Error:", err);
+                    showAlert('error', 'Unexpected server response.');
+                    resetUI();
+                }
+            } else {
+                let errorMsg = 'Upload failed.';
+                try {
+                    const errorObj = JSON.parse(xhr.responseText);
+                    errorMsg = errorObj.detail || errorObj.error || errorMsg;
+                } catch (e) {}
+                showAlert('error', errorMsg);
+                resetUI();
+            }
+        };
+
+        xhr.onerror = () => {
+            showAlert('error', 'Network error or connection lost.');
+            resetUI();
+        };
+
+        function resetUI() {
+            uploadBtn.disabled = false;
+            uploadBtn.innerHTML = '<i class="fas fa-rocket me-2"></i>Start Processing';
+            progressContainer.style.display = 'none';
+            progressBar.style.width = '0%';
+            progressText.textContent = '0%';
+        }
+
+        xhr.open('POST', '/api/admin/documents/', true);
+        xhr.setRequestHeader('X-CSRFToken', '{{ csrf_token }}');
+        xhr.send(formData);
+    });
+
+    function initConversionCard(documentId, meta) {
+        const container = document.getElementById('conversion-container');
+        const card = document.createElement('div');
+        card.className = 'conversion-card';
+        card.dataset.filename = meta.filename;
+        card.dataset.filesize = meta.filesize;
+        container.appendChild(card);
+        new ConversionManager(documentId, card);
+    }
+</script>
+{% endblock %}

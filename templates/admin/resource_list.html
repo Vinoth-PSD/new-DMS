@@ -1,0 +1,38 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Resource Users - DocPro Admin{% endblock %}
+
+{% block content %}
+<div class="ac-header">
+    <!-- <div>
+        <h1>Resource User Directory</h1>
+        <p>Manage human resources and processing staff across the platform.</p>
+    </div> -->
+    <div class="ac-actions">
+        <!-- <button class="ac-btn ac-btn-secondary">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+            Export List
+        </button> -->
+        <a href="{% url 'admin_panel:create_resource' %}" class="ac-btn ac-btn-primary" style="text-decoration:none;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            Add New Resource
+        </a>
+    </div>
+</div>
+
+<div style="margin-bottom: 1.5rem;">
+    <h2 style="font-size: 1.125rem; font-weight: 700; color: var(--ac-text-primary); margin-bottom: 0.25rem;">
+        Staff List</h2>
+    <!-- <p style="color: var(--ac-text-secondary); font-size: 0.875rem;">Showing active and inactive resource accounts.</p> -->
+</div>
+
+{% include 'admin/includes/user_table.html' with users=users show_actions=True %}
+{% endblock %}

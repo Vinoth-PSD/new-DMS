@@ -1,0 +1,113 @@
+{% extends 'base.html' %}
+
+{% block title %}Document Details - DocPro{% endblock %}
+
+{% block content %}
+<div class="layout-dashboard" style="max-width: 1200px; margin: 0 auto;">
+    <div style="margin-bottom: 2rem;">
+        <a href="{% url 'client_status' %}" style="text-decoration: none; color: #666; font-size: 0.875rem; font-weight: 500;">
+            &larr; Back to Documents
+        </a>
+    </div>
+
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 2rem; border-bottom: 1px solid #000; padding-bottom: 1rem;">
+        <div>
+            <h1 id="doc-name" style="font-size: 2rem; font-weight: 900; text-transform: uppercase; letter-spacing: -0.05em; margin-bottom: 0.5rem;">
+                Loading...
+            </h1>
+            <div style="display: flex; gap: 1rem; color: #666; font-size: 0.875rem;">
+                <span>Created: <span id="doc-created">...</span></span>
+                <span>Pages: <span id="doc-pages">...</span></span>
+            </div>
+        </div>
+        <div id="doc-status-badge">
+            <span class="badge badge-gray">Loading...</span>
+        </div>
+    </div>
+
+    <!-- Pages Grid -->
+    <div id="pages-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1.5rem;">
+        <!-- Pages will be injected here -->
+        <div style="grid-column: 1/-1; text-align: center; padding: 3rem; color: #666;">
+            Loading pages...
+        </div>
+    </div>
+</div>
+
+<script>
+    const docId = "{{ view.kwargs.pk }}"; // Get UUID from URL kwargs
+
+    async function fetchDocumentDetails() {
+        try {
+            const response = await fetch(`/api/v1/documents/${docId}/`);
+            if (!response.ok) throw new Error('Failed to fetch document');
+            
+            const doc = await response.json();
+            
+            // Update Header
+            document.getElementById('doc-name').textContent = doc.name || 'Untitled';
+            document.getElementById('doc-created').textContent = new Date(doc.created_at).toLocaleString();
+            document.getElementById('doc-pages').textContent = doc.total_pages || '-';
+
+            // Update Status
+            let statusBadge = '';
+            if (doc.status === 'COMPLETED') statusBadge = '<span class="badge badge-green" style="font-size: 1rem; padding: 0.5rem 1rem;">Completed</span>';
+            else if (doc.status === 'FAILED') statusBadge = '<span class="badge badge-red" style="font-size: 1rem; padding: 0.5rem 1rem;">Failed</span>';
+            else statusBadge = '<span class="badge badge-blue" style="font-size: 1rem; padding: 0.5rem 1rem;">Processing</span>';
+            document.getElementById('doc-status-badge').innerHTML = statusBadge;
+
+            // Render Pages
+            const pagesGrid = document.getElementById('pages-grid');
+            if (doc.pages && doc.pages.length > 0) {
+                let pagesHtml = '';
+                doc.pages.forEach(page => {
+                    let pageStatusColor = '#e2e8f0'; // Gray
+                    let statusText = 'Pending';
+                    
+                    if (page.status === 'COMPLETED') {
+                        pageStatusColor = '#bbf7d0'; // Green
+                        statusText = 'Completed';
+                    } else if (page.status === 'PROCESSING') {
+                        pageStatusColor = '#bfdbfe'; // Blue
+                        statusText = 'Processing';
+                    }
+
+                    pagesHtml += `
+                    <div class="card" style="border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; transition: transform 0.2s;">
+                        <div style="background: #f8fafc; padding: 1.5rem; display: flex; justify-content: center; align-items: center; border-bottom: 1px solid #e2e8f0;">
+                            <span style="font-size: 2rem; font-weight: 700; color: #cbd5e1;">${page.page_number}</span>
+                        </div>
+                        <div style="padding: 1rem;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                                <span style="font-size: 0.75rem; font-weight: 600; text-transform: uppercase; color: #64748b;">Page ${page.page_number}</span>
+                                <span style="font-size: 0.625rem; padding: 0.125rem 0.375rem; border-radius: 9999px; background: ${pageStatusColor}; color: #0f172a; font-weight: 600;">
+                                    ${statusText}
+                                </span>
+                            </div>
+                            <!-- Future: Add 'View' button if processed -->
+                        </div>
+                    </div>
+                    `;
+                });
+                pagesGrid.innerHTML = pagesHtml;
+            } else {
+                 pagesGrid.innerHTML = `
+                    <div style="grid-column: 1/-1; text-align: center; padding: 3rem; background: #f8fafc; border-radius: 8px; border: 1px dashed #cbd5e1;">
+                        <p style="color: #64748b; font-weight: 500;">Document is processing...</p>
+                        <p style="font-size: 0.875rem; color: #94a3b8;">Pages will appear here once split.</p>
+                    </div>
+                `;
+            }
+
+        } catch (err) {
+            console.error(err);
+            document.getElementById('doc-name').textContent = 'Error loading document';
+        }
+    }
+
+    // Initial fetch
+    fetchDocumentDetails();
+
+    fetchDocumentDetails();
+</script>
+{% endblock %}

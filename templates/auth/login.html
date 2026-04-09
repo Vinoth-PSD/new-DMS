@@ -1,0 +1,111 @@
+{% extends 'base.html' %}
+{% load static %}
+ 
+{% block title %}Login - XBERRA Tagger{% endblock %}
+ 
+{% block content %}
+<div class="layout-centered" style="align-items: center; min-height: calc(100vh - 80px); padding: 2rem;">
+    <div class="glass-panel" style="width: 100%; max-width: 420px; padding: 3rem 2.5rem; display: flex; flex-direction: column;   align-items: center;">
+        <div class="text-center" style="margin-bottom: 2rem; width: 100%;">
+            <div style="margin-bottom: 2rem; display: flex; justify-content: center;">
+                <img src="{% static 'img/logo.png' %}" alt="XBERRA TAGGER" style="max-width: 280px; height: auto; display: block;">
+            </div>
+            <p class="text-muted" style="margin: 0; font-size: 0.9375rem; font-weight: 500;">Please sign in to your account</p>
+        </div>
+ 
+        <form id="login-form" method="post" action="{% url 'login' %}" novalidate style="width: 100%;">
+            {% csrf_token %}
+ 
+            {% if form.errors %}
+            <div class="alert alert-error"
+                style="margin-bottom: 1.5rem; background: #fee2e2; color: #dc2626; padding: 0.75rem; border-radius: var(--radius); font-size: 0.875rem;">
+                <ul style="margin: 0; padding-left: 1.25rem;">
+                    {% for field, errors in form.errors.items %}
+                        {% for error in errors %}
+                            <li>{% if field != '__all__' %}{{ field|title }}: {% endif %}{{ error }}</li>
+                        {% endfor %}
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+ 
+            <div class="form-group">
+                <label for="id_username" class="form-label">Username</label>
+                <input type="text" name="username" autofocus maxlength="254" required id="id_username"
+                    class="form-control {% if form.username.errors %}is-invalid{% endif %}" 
+                    placeholder="Enter your username" autocomplete="username"
+                    value="{{ form.username.value|default:'' }}">
+                <div class="invalid-feedback" id="error-username">
+                    {% for error in form.username.errors %}{{ error }}{% endfor %}
+                </div>
+            </div>
+ 
+            <div class="form-group" style="margin-top: 1.25rem;">
+                <label for="id_password" class="form-label">Password</label>
+                <div style="position: relative; display: flex; align-items: center;">
+                    <input type="password" name="password" required id="id_password" 
+                        class="form-control {% if form.password.errors %}is-invalid{% endif %}" 
+                        placeholder="••••••••" autocomplete="current-password" 
+                        style="padding-right: 45px; width: 100%;">
+                    <button type="button" id="togglePassword" 
+                        style="position: absolute; right: 12px; background: none; border: none; padding: 0.25rem; color: #a3a3a3; cursor: pointer; display: flex; align-items: center; transition: color 0.2s;"
+                        onmouseover="this.style.color='var(--ac-accent-red, #dc2626)'" 
+                        onmouseout="this.style.color='#a3a3a3'">
+                        <svg id="eyeOpen" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                            <circle cx="12" cy="12" r="3"></circle>
+                        </svg>
+                        <svg id="eyeClosed" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display: none;">
+                            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+                            <line x1="1" y1="1" x2="23" y2="23"></line>
+                        </svg>
+                    </button>
+                </div>
+                <div class="invalid-feedback" id="error-password">
+                    {% for error in form.password.errors %}{{ error }}{% endfor %}
+                </div>
+            </div>
+ 
+            <button type="submit" class="btn btn-primary btn-block"
+                style="margin-top: 2rem; justify-content: center; width: 100%;">
+                Sign In
+            </button>
+        </form>
+ 
+        <script>
+            const form = document.getElementById('login-form');
+            const togglePassword = document.getElementById('togglePassword');
+            const passwordInput = document.getElementById('id_password');
+            const eyeOpen = document.getElementById('eyeOpen');
+            const eyeClosed = document.getElementById('eyeClosed');
+
+            if (togglePassword && passwordInput) {
+                togglePassword.addEventListener('click', function () {
+                    const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
+                    passwordInput.setAttribute('type', type);
+                    
+                    if (type === 'password') {
+                        eyeOpen.style.display = 'block';
+                        eyeClosed.style.display = 'none';
+                    } else {
+                        eyeOpen.style.display = 'none';
+                        eyeClosed.style.display = 'block';
+                    }
+                });
+            }
+
+            // Basic validation styles (Native fallback)
+            form.querySelectorAll('input').forEach(input => {
+                input.addEventListener('input', (e) => {
+                    if (e.target.value.trim() !== '') {
+                        e.target.classList.remove('is-invalid');
+                        const feedback = e.target.parentElement.querySelector('.invalid-feedback');
+                        if (feedback) feedback.innerText = '';
+                    }
+                });
+            });
+        </script>
+    </div>
+</div>
+{% endblock %}
+ 

@@ -1,0 +1,249 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Fetch Work - DocPro Resource{% endblock %}
+
+{% block content %}
+<div class="container layout-dashboard" style="max-width: 1200px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+        <div style="margin-left: 2rem;">
+            <h1 style="font-size: 2.5rem; font-weight: 900; text-transform: uppercase; letter-spacing: -0.05em; margin: 0;">
+                My Assignments</h1>
+            <p class="text-muted">Process your assigned page blocks.</p>
+            <p class="text-muted small" style="margin-top: 0.5rem;">
+                <strong>Process</strong> downloads use this pattern:
+                <code>resourceid_jobid_title_Bjobid.pdf</code> (or <code>.zip</code> if pages are not all PDF).
+                Point your browser download folder at the tray <code>download_folder</code>; saving that file there lets the tray learn your resource id and open ABBYY.
+            </p>
+            <p id="tray-resource-banner" class="alert alert-secondary small py-2 px-3 mb-0 mt-2" style="display: none; max-width: 52rem;"></p>
+        </div>
+    </div>
+
+    <!-- Active Assignments Block -->
+    <div class="card">
+        <div class="card-header">
+            <h3>Active Tasks</h3>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>File Name</th>
+                            <th>Page Range</th>
+                            <th>Pages Assigned</th>
+                            <th style="text-align: right; padding-right: 24px;">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="assignments-container">
+                        <!-- Loaded via JS -->
+                        <tr><td colspan="4" class="text-center p-4">Loading your assignments...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div id="pagination-controls" style="display: none; justify-content: space-between; align-items: center; padding: 1rem; background: #f8f9fa; border-top: 1px solid #dee2e6;">
+                <div id="page-info" class="text-muted small"></div>
+                <div class="btn-group">
+                    <button id="prev-btn" class="btn btn-sm btn-outline-secondary" onclick="changePage('prev')">Previous</button>
+                    <button id="next-btn" class="btn btn-sm btn-outline-secondary" onclick="changePage('next')">Next</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Use a hidden form for CSRF token access only -->
+<form style="display:none;">{% csrf_token %}</form>
+
+<script>
+    const assignmentsContainer = document.getElementById('assignments-container');
+    let nextUrl = null;
+    let prevUrl = null;
+    let suspendAutoRefresh = false;
+    function getCsrfToken() {
+        const fromWindow = window.csrftoken;
+        const fromForm = document.querySelector('[name=csrfmiddlewaretoken]')?.value;
+        const match = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+        const fromCookie = match ? decodeURIComponent(match[1]) : '';
+        return fromWindow || fromForm || fromCookie || '';
+    }
+
+    function renderEmptyState() {
+        assignmentsContainer.innerHTML = `
+            <tr><td colspan="4" class="text-center p-5">
+                <h4 class="text-muted">No Active Assignments</h4>
+                <p class="text-muted">You will see new tasks here when they are assigned to you.</p>
+            </td></tr>`;
+    }
+
+    function renderAssignmentBlocks(assignments) {
+        const banner = document.getElementById('tray-resource-banner');
+        if (!assignments || assignments.length === 0) {
+            if (banner) { banner.style.display = 'none'; banner.textContent = ''; }
+            renderEmptyState();
+            return;
+        }
+
+        const rid = assignments[0].resource_id;
+        if (banner && rid != null) {
+            banner.style.display = 'block';
+            banner.innerHTML =
+                '<strong>Tray app</strong>: put this number in <code>resource_id.txt</code> next to <code>DocProResourceTray.exe</code>: ' +
+                '<code>' + rid + '</code> (same id as in your download file name).';
+        }
+
+        assignmentsContainer.innerHTML = assignments.map((a) => {
+            const processUrl = `/api/resource/work/bundles/${a.document_id}/download/`;
+            const submitUrl = `/api/resource/work/bundles/${a.document_id}/submit/`;
+            const statusPill = a.status === 'IN_PROGRESS'
+                ? '<span class="badge bg-warning text-dark">IN_PROGRESS</span>'
+                : '<span class="badge bg-info text-dark">ASSIGNED</span>';
+            const sortedPages = (a.page_numbers || []).slice().sort((x, y) => x - y);
+            const pageLabel = formatPageLabel(sortedPages);
+            const dlBase = a.suggested_download_basename || `${a.resource_id}_${a.document_id}_document_B${a.document_id}`;
+            return `
+                <tr style="height: 70px;">
+                    <td style="padding: 12px 16px;">
+                        <div style="font-weight: 700; color: #1e293b; font-size: 14px; line-height: 1.2;">${a.document_title || `Document ${a.document_id}`}</div>
+                        <div style="font-size: 11px; color: #94a3b8; font-family: 'Inter', sans-serif; margin-top: 4px;">${a.pages_assigned} pages assigned</div>
+                        <div style="font-size: 10px; color: #64748b; margin-top: 6px;">Download: <code style="font-size:10px;">${dlBase}.pdf</code> or <code style="font-size:10px;">${dlBase}.zip</code></div>
+                    </td>
+                    <td>
+                        <span class="badge" style="background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; font-weight: 600; padding: 6px 12px; border-radius: 6px;">
+                            ${pageLabel}
+                        </span>
+                    </td>
+                    <td>
+                        <span style="font-size: 13px; color: #64748b; font-weight: 500;">
+                            ${a.pages_assigned || sortedPages.length} pages
+                        </span>
+                        <div style="font-size:11px; color:#94a3b8; margin-top:4px;">${statusPill}</div>
+                    </td>
+                    <td style="text-align: right; padding-right: 24px;">
+                         <button onclick="startWork('${processUrl}')" class="btn btn-sm" 
+                            style="background: #1a3c6e; color: #ffffff; font-weight: 600; padding: 8px 16px; border-radius: 6px; text-decoration: none; transition: background 0.2s; border: 0;">
+                            Process &nbsp;<i class="fas fa-arrow-right" style="font-size: 10px;"></i>
+                        </button>
+                        <input type="file" id="file-${a.document_id}" accept=".pdf,.doc,.docx" style="display:none;" onchange="submitWork('${submitUrl}', '${a.document_id}')">
+                        <button onclick="openUpload('${a.document_id}')" class="btn btn-sm" 
+                            style="background: #15803d; color: #ffffff; font-weight: 600; padding: 8px 12px; border-radius: 6px; border: 0; margin-left: 6px;">
+                            Upload Cleaned
+                        </button>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    function formatPageLabel(sortedPages) {
+        if (!sortedPages || sortedPages.length === 0) return 'Pages -';
+        if (sortedPages.length === 1) return `Page ${sortedPages[0]}`;
+        const ranges = [];
+        let start = sortedPages[0];
+        let prev = sortedPages[0];
+        for (let i = 1; i < sortedPages.length; i++) {
+            const curr = sortedPages[i];
+            if (curr === prev + 1) {
+                prev = curr;
+                continue;
+            }
+            ranges.push(start === prev ? `${start}` : `${start}-${prev}`);
+            start = curr;
+            prev = curr;
+        }
+        ranges.push(start === prev ? `${start}` : `${start}-${prev}`);
+        return `Pages ${ranges.join(', ')}`;
+    }
+
+    async function loadAssignments(url = '/api/resource/work/bundles/') {
+        try {
+            const response = await fetch(url);
+            if (!response.ok) throw new Error('Failed to load assignments');
+            const data = await response.json();
+            const rows = data.results || data;
+            nextUrl = data.next || null;
+            prevUrl = data.previous || null;
+            document.getElementById('pagination-controls').style.display = 'none';
+            document.getElementById('prev-btn').disabled = !prevUrl;
+            document.getElementById('next-btn').disabled = !nextUrl;
+            renderAssignmentBlocks(rows);
+        } catch (err) {
+            console.error(err);
+            renderEmptyState();
+        }
+    }
+
+    function changePage(direction) {
+        if (direction === 'next' && nextUrl) loadAssignments(nextUrl);
+        if (direction === 'prev' && prevUrl) loadAssignments(prevUrl);
+    }
+
+    // Reuse one named tab/window so every "Process" click still works (many browsers block repeated window.open('_blank')).
+    let bundleDownloadWindow = null;
+    async function startWork(url) {
+        try {
+            const name = 'dmsBundleDownload';
+            if (!bundleDownloadWindow || bundleDownloadWindow.closed) {
+                bundleDownloadWindow = window.open(url, name);
+            } else {
+                bundleDownloadWindow.location.href = url;
+                bundleDownloadWindow.focus();
+            }
+            if (!bundleDownloadWindow) {
+                window.location.assign(url);
+                return;
+            }
+            loadAssignments();
+        } catch (err) {
+            console.error(err);
+        }
+    }
+
+    function openUpload(documentId) {
+        suspendAutoRefresh = true;
+        const fileInput = document.getElementById(`file-${documentId}`);
+        if (fileInput) {
+            fileInput.click();
+            // If user cancels file picker, release refresh lock shortly.
+            setTimeout(() => {
+                if (!fileInput.value) suspendAutoRefresh = false;
+            }, 1500);
+        } else {
+            suspendAutoRefresh = false;
+        }
+    }
+
+    async function submitWork(url, pageId) {
+        const fileInput = document.getElementById(`file-${pageId}`);
+        if (!fileInput || !fileInput.files || !fileInput.files[0]) return;
+        const formData = new FormData();
+        formData.append('processed_file', fileInput.files[0]);
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'X-CSRFToken': getCsrfToken() },
+                body: formData,
+            });
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                const msg = err.detail || 'Failed to upload processed file';
+                if (typeof showToast === 'function') showToast(msg, 'error');
+                throw new Error(msg);
+            }
+            if (typeof showToast === 'function') showToast('Cleaned file uploaded successfully.', 'success');
+            loadAssignments();
+        } catch (err) {
+            console.error(err);
+        } finally {
+            fileInput.value = '';
+            suspendAutoRefresh = false;
+        }
+    }
+
+    loadAssignments();
+    setInterval(() => {
+        if (!suspendAutoRefresh) loadAssignments();
+    }, 3000);
+</script>
+{% endblock %}

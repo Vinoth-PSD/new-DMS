@@ -1,0 +1,77 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Dashboard - Admin Console{% endblock %}
+
+{% block content %}
+<div class="ac-header-premium " style="margin-left: 10px;">
+    <div>
+        <p style="text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700; font-size: 0.75rem; color: var(--ac-accent-red); margin-bottom: 0.5rem;  ">System Overview</p>
+        <h1>Administrator Dashboard</h1>
+    </div>
+</div>
+
+<div style="margin-bottom: 2.5rem; margin-left: 20px;">
+    <h2 style="font-size: 1.125rem; font-weight: 700; color: var(--ac-text-primary); margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.75rem;">
+        <i class="fas fa-chart-pie" style="color: var(--ac-accent-red);"></i>
+        Key Performance Indicators
+    </h2>
+
+<div style="margin-bottom: 2.5rem;">
+    {% include 'admin/includes/stats_grid.html' %}
+</div>
+
+<!-- <div style="margin-bottom: 1.5rem;">
+    <h2 style="font-size: 1.125rem; font-weight: 700; color: var(--ac-text-primary); margin-bottom: 0.25rem;">Directory:
+        Administrators</h2>
+    <p style="color: var(--ac-text-secondary); font-size: 0.875rem;">System administrators and staff members with
+        platform control.</p>
+</div> -->
+
+
+
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/realtime.js' %}"></script>
+<script>
+    const rt = new RealtimeManager({ role: 'admin' });
+
+    rt.on('dashboard_summary', (data) => {
+        // Map backend keys to existing template IDs if they differ
+        const mappings = {
+            'stat-total-docs': data.pipeline?.total || 0,
+            'stat-total-resources': data.resources?.total || 0,
+            'stat-online-resources': data.resources?.online || 0,
+            'stat-processing-docs': data.pipeline?.processing_docs || 0,
+            'stat-pending-reviews': data.queue?.pending_review || 0,
+            'stat-assigned-pages': data.queue?.assigned_pages || 0,
+            'stat-unassigned-pages': data.queue?.unassigned_pages || 0,
+            'stat-unassigned-docs': data.pipeline?.unassigned_docs || 0,
+        };
+
+        for (const [id, value] of Object.entries(mappings)) {
+            const el = document.getElementById(id);
+            if (el && el.innerText != value) {
+                el.innerText = value;
+                el.classList.add('badge-pulse');
+                setTimeout(() => el.classList.remove('badge-pulse'), 1000);
+            }
+        }
+    });
+
+    rt.on('poll_suspended', ({ name }) => {
+        console.error(`[Realtime] Poll "${name}" suspended — check network`);
+    });
+
+    rt.start();
+    
+    // Stop when navigating away
+    window.addEventListener('beforeunload', () => rt.stop());
+</script>
+{% endblock %}
+
+
+<!-- 
+{% include 'admin/includes/user_table.html' with users=users show_actions=False %}
+ -->

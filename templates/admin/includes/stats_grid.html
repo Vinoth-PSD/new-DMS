@@ -1,0 +1,112 @@
+<div class="stats-grid" id="admin-stats">
+    <!-- Total Documents -->
+    <div class="premium-card" style="--card-grad: var(--grad-indigo);">
+        <div class="card-top">
+            <div class="stat-icon-box"><i class="fas fa-file-invoice"></i></div>
+            <div class="stat-badge">Docs</div>
+        </div>
+        <div class="stat-main">
+            <span class="stat-label-text">Total Documents</span>
+            <span class="stat-value-text" id="stat-total-docs">{{ total_docs }}</span>
+        </div>
+        <div class="stat-footer">
+            <span class="stat-trend trend-up"><i class="fas fa-arrow-up"></i> Active</span>
+            <span>All time capacity</span>
+        </div>
+    </div>
+
+    <!-- Resources -->
+    <div class="premium-card" style="--card-grad: var(--grad-emerald);">
+        <div class="card-top">
+            <div class="stat-icon-box"><i class="fas fa-user-shield"></i></div>
+            <div class="stat-badge"><span id="stat-online-resources">{{ active_resources }}</span> Online</div>
+        </div>
+        <div class="stat-main">
+            <span class="stat-label-text">Resources</span>
+            <span class="stat-value-text" id="stat-total-resources">{{ total_resources }}</span>
+        </div>
+        <div class="stat-footer">
+            <span>Staff accounts</span>
+        </div>
+    </div>
+
+
+    <!-- Processing Now -->
+    <div class="premium-card" style="--card-grad: var(--grad-amber);">
+        <div class="card-top">
+            <div class="stat-icon-box"><i class="fas fa-sync-alt fa-spin"></i></div>
+            <div class="stat-badge">Active</div>
+        </div>
+        <div class="stat-main">
+            <span class="stat-label-text">Processing Now</span>
+            <span class="stat-value-text" id="stat-processing-docs">{{ processing_docs }}</span>
+        </div>
+        <div class="stat-footer">
+            <span>Currently in pipeline</span>
+        </div>
+    </div>
+
+    <!-- Pending Approval -->
+    <div class="premium-card" style="--card-grad: var(--grad-blue);">
+        <div class="card-top">
+            <div class="stat-icon-box"><i class="fas fa-clipboard-check"></i></div>
+            <div class="stat-badge">Review</div>
+        </div>
+        <div class="stat-main">
+            <span class="stat-label-text">Pending Approval</span>
+            <span class="stat-value-text" id="stat-pending-reviews">{{ pending_reviews }}</span>
+        </div>
+        <div class="stat-footer">
+            <span>Awaiting final sign-off</span>
+        </div>
+    </div>
+
+    <!-- Assigned Pages -->
+    <div class="premium-card" style="--card-grad: var(--grad-rose);">
+        <div class="card-top">
+            <div class="stat-icon-box"><i class="fas fa-tasks"></i></div>
+            <div class="stat-badge">Workload</div>
+        </div>
+        <div class="stat-main">
+            <span class="stat-label-text">Assigned Pages</span>
+            <span class="stat-value-text" id="stat-assigned-pages">{{ assigned_pages_count }}</span>
+        </div>
+        <div class="stat-footer">
+            <span>Distributed workload</span>
+        </div>
+    </div>
+
+    <!-- Unassigned Pages -->
+    <div class="premium-card {% if unassigned_pages_count > 0 %}attention{% endif %}" style="--card-grad: var(--grad-rose);">
+        <div class="card-top">
+            <div class="stat-icon-box"><i class="fas fa-exclamation-triangle"></i></div>
+            <div class="stat-badge">Urgent</div>
+        </div>
+        <div class="stat-main">
+            <span class="stat-label-text">Unassigned Pages</span>
+            <span class="stat-value-text" id="stat-unassigned-pages">{{ unassigned_pages_count }}</span>
+        </div>
+        <div class="stat-footer">
+            {% if unassigned_pages_count > 0 %}
+            <span class="stat-trend trend-down">Needs Assignment</span>
+            {% else %}
+            <span>Queue is clear</span>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Unassigned Docs -->
+    <div class="premium-card" style="--card-grad: var(--grad-slate);">
+        <div class="card-top">
+            <div class="stat-icon-box"><i class="fas fa-layer-group"></i></div>
+            <div class="stat-badge">Queue</div>
+        </div>
+        <div class="stat-main">
+            <span class="stat-label-text">Unassigned Docs</span>
+            <span class="stat-value-text" id="stat-unassigned-docs">{{ unassigned_docs_count }}</span>
+        </div>
+        <div class="stat-footer">
+            <span>Documents in initial stage</span>
+        </div>
+    </div>
+</div>

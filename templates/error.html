@@ -1,0 +1,18 @@
+{% extends 'base.html' %}
+
+<!-- {% block title %}Error - XBERRA Tagger{% endblock %} -->
+
+{% block content %}
+<div class="container" style="max-width: 600px; margin-top: 5rem; text-align: center;">
+    <div class="card p-5 shadow-sm">
+        <h1 class="display-1 text-danger" style="font-weight: 900;">{{ code|default:"Error" }}</h1>
+        <h2 class="mb-4">{{ message|default:"Something went wrong." }}</h2>
+        <p class="text-muted mb-5">
+            If you believe this is a mistake, please contact your administrator.
+        </p>
+        <a href="{% url 'role_redirect' %}" class="btn ac-btn-primary">
+            Return to Dashboard
+        </a>
+    </div>
+</div>
+{% endblock %}

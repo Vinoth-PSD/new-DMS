@@ -1,0 +1,214 @@
+{% extends 'base.html' %}
+
+{% block title %}My Documents - DocPro{% endblock %}
+
+{% block content %}
+<div class="layout-dashboard" style="max-width: 1200px; margin: 0 auto;">
+    <div
+        style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 2rem; border-bottom: 1px solid #000; padding-bottom: 1rem;">
+        <div>
+            <h1
+                style="font-size: 2.5rem; font-weight: 900; text-transform: uppercase; letter-spacing: -0.05em; margin-bottom: 0.5rem;">
+                My Documents</h1>
+            <p style="color: #666; font-size: 1rem; margin: 0;">Document management & PDF processing.</p>
+        </div>
+        <a href="{% url 'client_upload' %}" class="btn"
+            style="background: #dc2626; color: white; border-radius: 0; font-weight: 700; text-transform: uppercase; padding: 0.75rem 1.5rem; letter-spacing: 0.05em;">
+            + Upload New
+        </a>
+    </div>
+
+    <!-- Documents Table -->
+    <div style="border: 2px solid #000;">
+        <div class="table-responsive">
+            <table class="table" style="margin-bottom: 0;">
+                <thead>
+                    <tr style="background: #ffffff; border-bottom: 2px solid #000;">
+                        <th
+                            style="text-transform: uppercase; font-weight: 800; font-size: 0.8rem; letter-spacing: 0.1em; padding: 1rem;">
+                            Filename</th>
+                        <th
+                            style="text-transform: uppercase; font-weight: 800; font-size: 0.8rem; letter-spacing: 0.1em; padding: 1rem;">
+                            Status</th>
+                        <th
+                            style="text-transform: uppercase; font-weight: 800; font-size: 0.8rem; letter-spacing: 0.1em; padding: 1rem;">
+                            Created</th>
+                        <th
+                            style="text-transform: uppercase; font-weight: 800; font-size: 0.8rem; letter-spacing: 0.1em; padding: 1rem;">
+                            Updated</th>
+                        <th
+                            style="text-transform: uppercase; font-weight: 800; font-size: 0.8rem; letter-spacing: 0.1em; padding: 1rem; text-align: right;">
+                            Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="document-table-body">
+                    <tr>
+                        <td colspan="5" style="text-align: center; padding: 3rem;">Loading documents...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+
+    <!-- Rename Modal (Alert Box Style) -->
+    <div id="rename-modal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-title">Rename Document</div>
+            <div class="modal-text">Enter the new name for your document below.</div>
+            
+            <input type="hidden" id="rename-doc-id">
+            <div style="margin-bottom: 2rem;">
+                <input type="text" id="rename-doc-input" class="form-control" 
+                       style="text-align: center; border: 2px solid #000; border-radius: 0; padding: 0.75rem;"
+                       placeholder="Enter name...">
+            </div>
+
+            <div class="modal-actions">
+                <button onclick="closeRenameModal()" class="modal-btn modal-btn-secondary">Cancel</button>
+                <button onclick="submitRename()" class="modal-btn" 
+                        style="background: #dc2626; color: white; border: none; font-weight: 700; border-radius: 0; text-transform: uppercase;">
+                    Save
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    async function fetchDocuments() {
+        const tbody = document.getElementById('document-table-body');
+        try {
+            const response = await fetch('/api/v1/documents/');
+            const documents = await response.json();
+
+            if (documents.results) { // Handle DRF pagination object structure if needed, or simple list
+                documents = documents.results || documents;
+            }
+
+            if (documents.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align: center;">No documents found. Start by uploading one!</td></tr>';
+                return;
+            }
+
+            let html = '';
+            documents.forEach(doc => {
+                let statusBadge = '';
+                if (doc.status === 'COMPLETED') statusBadge = '<span class="badge badge-green">Completed</span>';
+                else if (doc.status === 'FAILED') statusBadge = '<span class="badge badge-red">Failed</span>';
+                else statusBadge = '<span class="badge badge-blue">Processing</span>';
+
+                let actions = '<div style="display:flex; gap:0.5rem; justify-content:flex-end;">';
+                
+                // Download button if completed
+                if (doc.status === 'COMPLETED' && doc.final_file) {
+                    actions += `<a href="${doc.final_file}" target="_blank" class="btn btn-secondary btn-sm" title="Download">⬇</a>`;
+                }
+
+                // Edit Button
+                actions += `<button onclick="renameDocument('${doc.id}', '${doc.name}')" class="btn btn-secondary btn-sm" title="Rename" style="padding: 0.25rem 0.5rem;">✏️</button>`;
+                
+                // Delete Button
+                actions += `<button onclick="deleteDocument('${doc.id}')" class="btn btn-secondary btn-sm" title="Delete" style="padding: 0.25rem 0.5rem; color: #dc2626; border-color: #dc2626;">🗑️</button>`;
+                
+                actions += '</div>';
+
+                html += `
+                <tr>
+                    <td>
+                        <a href="/client/document/${doc.id}/" style="color: var(--text-primary); text-decoration: none; font-weight: 700; transition: color 0.2s;" onmouseover="this.style.color='#dc2626'" onmouseout="this.style.color='var(--text-primary)'">
+                            ${doc.name || 'Untitled'}
+                        </a>
+                    </td>
+                    <td>${statusBadge}</td>
+                    <td>${new Date(doc.created_at).toLocaleString()}</td>
+                    <td>${new Date(doc.updated_at).toLocaleString()}</td>
+                    <td style="text-align: right;">${actions}</td>
+                </tr>
+                `;
+            });
+            tbody.innerHTML = html;
+
+        } catch (err) {
+            console.error(err);
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: red;">Failed to load documents.</td></tr>';
+        }
+    }
+
+    function renameDocument(id, currentName) {
+        document.getElementById('rename-doc-id').value = id;
+        document.getElementById('rename-doc-input').value = currentName === 'null' ? '' : currentName;
+        document.getElementById('rename-modal').style.display = 'flex';
+        document.getElementById('rename-doc-input').focus();
+    }
+
+    function closeRenameModal() {
+        document.getElementById('rename-modal').style.display = 'none';
+    }
+
+    async function submitRename() {
+        const id = document.getElementById('rename-doc-id').value;
+        const newName = document.getElementById('rename-doc-input').value;
+
+        if (!newName) {
+            if (typeof showToast === 'function') showToast("Please enter a name.", "warning");
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/v1/documents/${id}/`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': window.csrftoken
+                },
+                body: JSON.stringify({ name: newName })
+            });
+
+            if (response.ok) {
+                if (typeof showToast === 'function') showToast("Document renamed successfully!");
+                closeRenameModal();
+                fetchDocuments();
+            } else {
+                if (typeof showToast === 'function') showToast("Failed to rename document.", "error");
+            }
+        } catch (err) {
+            console.error(err);
+            if (typeof showToast === 'function') showToast("An error occurred.", "error");
+        }
+    }
+
+    function deleteDocument(id) {
+        if (typeof showConfirm === 'function') {
+            showConfirm("Are you sure you want to delete this document? This action cannot be undone.", async () => {
+                await executeDelete(id);
+            });
+        } else if (confirm("Are you sure you want to delete this document?")) {
+            executeDelete(id);
+        }
+    }
+
+    async function executeDelete(id) {
+        try {
+            const response = await fetch(`/api/v1/documents/${id}/`, {
+                method: 'DELETE',
+                headers: {
+                    'X-CSRFToken': window.csrftoken
+                }
+            });
+
+            if (response.ok || response.status === 204) {
+                if (typeof showToast === 'function') showToast("Document deleted successfully!");
+                fetchDocuments();
+            } else {
+                if (typeof showToast === 'function') showToast("Failed to delete document.", "error");
+            }
+        } catch (err) {
+            console.error(err);
+            if (typeof showToast === 'function') showToast("An error occurred.", "error");
+        }
+    }
+
+    fetchDocuments();
+</script>
+{% endblock %}

@@ -1,0 +1,24 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Django runtime artifacts
+media/
+staticfiles/
+db.sqlite3
+
+# Logs and local state
+*.log
+automation.log
+tray_state.json
+
+# Packaging/build outputs
+build/
+dist/
+*.spec
+
+# IDE/system
+.DS_Store
+Thumbs.db

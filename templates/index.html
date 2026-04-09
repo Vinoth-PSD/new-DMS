@@ -1,0 +1,45 @@
+{% extends 'base.html' %}
+<div class="sidebar-brand">
+        <img src="{% static 'img/logo.png' %}" 
+            alt="XBERRA TAGGER"
+            class="sidebar-logo" style="width: 260px;">
+    </div>
+
+{% block content %}
+<div class="layout-centered">
+    <div class="card" style="width: 100%; max-width: 400px; padding: 2rem;">
+        <h2 style="margin-bottom: 1.5rem; text-align: center;">Sign in to your account</h2>
+
+        <form method="post" action="{% url 'login' %}">
+            {% csrf_token %}
+
+            {% if form.non_field_errors %}
+            <div class="alert alert-error">
+                {% for error in form.non_field_errors %}
+                {{ error }}
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            <div class="form-group">
+                <label for="id_username" class="form-label">Username</label>
+                <input type="text" name="username" autofocus maxlength="254" required id="id_username"
+                    class="form-control" autocomplete="username">
+            </div>
+
+            <div class="form-group">
+                <label for="id_password" class="form-label">Password</label>
+                <input type="password" name="password" required id="id_password" class="form-control"
+                    autocomplete="current-password">
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-block">Sign In</button>
+
+            <div style="margin-top: 1rem; text-align: center;">
+                <span class="text-muted">Need a Client account? <a href="{% url 'register' %}"
+                        style="color: var(--primary-color); text-decoration: none;">Sign up here</a></span>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

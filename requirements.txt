@@ -1,0 +1,7 @@
+django>=5.0
+djangorestframework>=3.15
+psycopg[binary]>=3.1
+celery>=5.4
+redis>=5.0
+python-docx>=1.1
+pypdf>=4.2

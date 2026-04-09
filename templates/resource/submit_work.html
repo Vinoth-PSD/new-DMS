@@ -1,0 +1,83 @@
+{% extends 'base.html' %}
+
+{% block title %}Submit Work - DocPro Resource{% endblock %}
+
+{% block content %}
+<div class="layout-centered">
+    <div class="card" style="width: 100%; max-width: 600px;">
+        <div class="card-header">
+            📤 Submit Processed Page
+        </div>
+        <div class="card-body">
+            <form id="submit-form" enctype="multipart/form-data">
+                {% csrf_token %}
+
+                <input type="hidden" id="assignment_id" name="assignment_id">
+
+                <div class="form-group">
+                    <label for="processed_file" class="form-label">Processed PDF File</label>
+                    <input type="file" id="processed_file" name="file" class="form-control" accept="application/pdf"
+                        required>
+                    <div class="form-text">Result of your processing work.</div>
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-block" style="margin-top: 2rem;">
+                    Submit Completion
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Pre-fill assignment ID if present in URL
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('assignment_id')) {
+        document.getElementById('assignment_id').value = params.get('assignment_id');
+    }
+
+    const form = document.getElementById('submit-form');
+    const statusMsg = document.getElementById('status-msg');
+
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const submitBtn = form.querySelector('button[type="submit"]');
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Submitting...';
+
+        const assignmentId = document.getElementById('assignment_id').value;
+        const formData = new FormData();
+        formData.append('processed_file', document.getElementById('processed_file').files[0]);
+
+        try {
+            // API Endpoint: Assuming POST /api/v1/processing/work/{id}/submit/
+            const response = await fetch(`/api/v1/processing/work/${assignmentId}/submit/`, {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                },
+                body: formData
+            });
+
+            if (response.ok) {
+                showToast('Submission successful! Proceed to fetch next task.', 'success');
+                form.reset();
+                setTimeout(() => {
+                    window.location.href = "{% url 'resource_fetch' %}";
+                }, 2000);
+            } else {
+                const err = await response.json();
+                console.error("Submission Error:", err);
+                showToast(err.error || err.detail || 'Failed to submit. Check ID and file.', 'error');
+            }
+        } catch (error) {
+            console.error(error);
+            showToast('Network or Server error.', 'error');
+        } finally {
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Submit Completion';
+        }
+    });
+</script>
+{% endblock %}

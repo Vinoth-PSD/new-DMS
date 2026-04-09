@@ -1,0 +1,24 @@
+<div class="card">
+    <div class="card-body">
+        <form method="get" action="." id="filter-form">
+            <div style="display:flex; gap:1rem; margin-bottom:1.5rem; flex-wrap:wrap;">
+                <div style="flex:1; min-width:200px;">
+                    <input type="text"
+                           name="search"
+                           class="form-control"
+                           placeholder="Search by username or email..."
+                           value="{{ current_search }}"
+                           onchange="this.form.submit()">
+                </div>
+                <input type="hidden" name="sort" id="sort-input" value="{{ current_sort }}">
+                <div style="width:200px;">
+                    <select name="status" class="form-control" onchange="this.form.submit()">
+                        <option value="ALL" {% if current_status ==  "ALL" %}selected{% endif %}>All Statuses</option>
+                        <option value="ACTIVE" {% if current_status ==  "ACTIVE" %}selected{% endif %}>Active</option>
+                        <option value="INACTIVE" {% if current_status ==  "INACTIVE" %}selected{% endif %}>Inactive</option>
+                    </select>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>

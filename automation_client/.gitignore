@@ -1,0 +1,9 @@
+.venv/
+venv/
+build/
+dist/
+__pycache__/
+*.spec
+config.json
+state.json
+automation.log

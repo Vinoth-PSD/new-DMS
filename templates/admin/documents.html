@@ -1,0 +1,2040 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}All Documents - Admin Dashboard{% endblock %}
+
+{% block content %}
+<div class="ac-dashboard-container">
+    <div class="ac-page-header">
+        <div class="header-left">
+            <h1 class="ac-page-title">Document Management</h1>
+            <!-- <p class="ac-page-subtitle">View and manage all documents across the platform.</p> -->
+        </div>
+        <div class="header-right">
+        </div>
+    </div>
+
+    <div class="ac-content-grid">
+        <div class="ac-card">
+
+            <!-- SEARCH & FILTER SECTION -->
+            <div class="ac-table-header">
+                <div style="width:100%; display:flex; justify-content:space-between; align-items:center; gap:1.5rem;">
+                    <div class="ac-filters">
+                        <div style="position:relative;">
+                            <input type="text" id="docSearch" class="ac-search-input" placeholder="Search by name..."
+                                onkeyup="filterDocuments()">
+                            <svg style="position:absolute; right:12px; top:10px; color:#a3a3a3; width:16px; height:16px;"
+                                viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="11" cy="11" r="8"></circle>
+                                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                            </svg>
+                        </div>
+
+                        <select id="docStatusFilter" class="ac-select" onchange="filterDocuments()">
+                            <option value="ALL">Status: All</option>
+                            <option value="Completed">Completed</option>
+                            <option value="Ready for Merging">Ready for Merging</option>
+                            <option value="Reviewing">Reviewing</option>
+                            <option value="Started">Started</option>
+                            <option value="Assigned">Assigned</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="ac-table-container">
+                <table class="ac-table" id="users-table">
+                    <thead>
+                        <tr>
+                            <th class="col-exp" style="width: 40px;"></th>
+                            <th class="col-name">Filename</th>
+                            <th class="col-version" style="text-align:center;">Ver.</th>
+                            <th class="col-pages" style="text-align:center;">Pages</th>
+
+                            <th class="col-assigned">Assigned To</th>
+                            <th class="col-status">Status</th>
+                            <th class="col-created">Created</th>
+                            <th class="col-actions" style="text-align:right;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="document-table-body">
+                        <tr>
+                            <td colspan="8" style="text-align: center; padding: 40px;">Loading documents...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="ac-pagination" id="docPagination"
+                style="display: none; justify-content: space-between; align-items: center; padding: 1rem;">
+                <div style="color:var(--ac-text-secondary); font-size:0.875rem;" id="docCountText">
+                    Showing documents
+                </div>
+                <div class="pagination-controls" style="display: flex; gap: 8px;">
+                    <button id="prevBtn" class="ac-btn ac-btn-secondary" style="padding: 4px 12px; font-size: 0.8rem;"
+                        onclick="changePage('prev')">Previous</button>
+                    <button id="nextBtn" class="ac-btn ac-btn-secondary" style="padding: 4px 12px; font-size: 0.8rem;"
+                        onclick="changePage('next')">Next</button>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+<style>
+    :root {
+        --modal-bg: #0f0f0f;
+        --panel-bg: #1a1a1a;
+        --text-muted: #666;
+        --border-color: rgba(255, 255, 255, 0.1);
+        --accent-red: #e53e3e;
+        --accent-green: #10b981;
+        --accent-amber: #f59e0b;
+        --transition: 200ms ease;
+    }
+
+    .ac-modal-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.85);
+        display: none;
+        justify-content: center;
+        align-items: center;
+        z-index: 2000;
+        backdrop-filter: blur(8px);
+        opacity: 0;
+        transition: opacity var(--transition);
+    }
+
+    .ac-modal-overlay.active {
+        display: flex;
+        opacity: 1;
+    }
+
+    .modal-content {
+        background: var(--modal-bg);
+        width: 100vw;
+        height: 100dvh;
+        max-height: 100dvh;
+        display: flex;
+        flex-direction: column;
+        position: relative;
+        overflow: hidden;
+        transform: scale(0.95);
+        transition: transform var(--transition);
+        border: 1px solid var(--border-color);
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    }
+
+    .ac-modal-overlay.active .modal-content {
+        transform: translateY(0);
+        opacity: 1;
+    }
+
+    .modal-branding-bar {
+        height: 4px;
+        background: var(--accent-red);
+        width: 100%;
+        flex-shrink: 0;
+    }
+
+    .modal-content.confirm-card {
+        width: 100%;
+        max-width: 420px;
+        height: auto;
+        min-height: auto;
+        max-height: auto;
+        border-radius: 12px;
+        transform: translateY(20px);
+    }
+
+    .ac-modal-overlay.active .modal-content.confirm-card {
+        transform: translateY(0);
+    }
+
+    .modal-header {
+        padding: clamp(1rem, 5vw, 2rem);
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .modal-title-group h2 {
+        margin: 0;
+        font-size: clamp(1.1rem, 4vw, 1.75rem);
+        text-transform: uppercase;
+        font-weight: 950;
+        letter-spacing: -0.03em;
+        color: #fff;
+    }
+
+    .modal-title-group p {
+        margin: 4px 0 0;
+        font-size: 0.85rem;
+        color: var(--text-muted);
+    }
+
+    .modal-close-btn {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid var(--border-color);
+        padding: 8px;
+        border-radius: 50%;
+        color: #fff;
+        cursor: pointer;
+        transition: all var(--transition);
+    }
+
+    .modal-close-btn:hover {
+        background: rgba(255, 255, 255, 0.1);
+        transform: rotate(90deg);
+    }
+
+    .modal-body {
+        flex: 1;
+        overflow-y: auto;
+        padding: clamp(1rem, 5vw, 2rem);
+        max-height: calc(100dvh - 120px);
+        scrollbar-width: none;
+        /* Hide scrollbar for Firefox */
+        -ms-overflow-style: none;
+        /* Hide scrollbar for IE/Edge */
+    }
+
+    .modal-body::-webkit-scrollbar {
+        display: none;
+        /* Hide scrollbar for Chrome/Safari/Brave */
+    }
+
+    .detail-modal-body {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 2rem;
+        text-align: left;
+    }
+
+    .detail-section-title {
+        color: var(--accent-red);
+        border-bottom: 1px solid rgba(220, 38, 38, 0.2);
+        padding-bottom: 8px;
+        margin-bottom: 1.5rem;
+        font-weight: 800;
+        text-transform: uppercase;
+        font-size: 0.85rem;
+        letter-spacing: 0.05em;
+    }
+
+    /* General Info Styling */
+    .info-group {
+        margin-bottom: 0.75rem;
+    }
+
+    .info-label {
+        font-weight: 700;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        font-size: 0.65rem;
+        margin-bottom: 2px;
+        letter-spacing: 0.05em;
+    }
+
+    .info-value {
+        color: #fff;
+        font-size: 0.9rem;
+        font-weight: 500;
+        word-break: break-word;
+    }
+
+    /* Assignments List Styling */
+    .assignment-row {
+        background: var(--panel-bg);
+        border: 1px solid var(--border-color);
+        padding: 10px 14px;
+        border-radius: 8px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 8px;
+        transition: background var(--transition);
+    }
+
+    .assignment-row:hover {
+        background: #252525;
+    }
+
+    .assignment-info {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .assignment-user {
+        font-weight: 600;
+        color: #fff;
+        font-size: 0.9rem;
+    }
+
+    .assignment-pages {
+        color: var(--text-muted);
+        font-size: 0.8rem;
+    }
+
+    .status-pill {
+        font-size: 10px;
+        font-weight: 700;
+        padding: 4px 10px;
+        border-radius: 9999px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        white-space: nowrap;
+    }
+
+    .status-pill.processing {
+        background: rgba(245, 158, 11, 0.1);
+        color: var(--accent-amber);
+        border: 1px solid rgba(245, 158, 11, 0.2);
+    }
+
+    .status-pill.waiting {
+        background: rgba(102, 102, 102, 0.1);
+        color: var(--text-muted);
+        border: 1px solid rgba(102, 102, 102, 0.2);
+    }
+
+    .status-pill.completed {
+        background: rgba(16, 185, 129, 0.1);
+        color: var(--accent-green);
+        border: 1px solid rgba(16, 185, 129, 0.2);
+    }
+
+    /* Page Grid Styling */
+    .page-status-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
+        gap: 8px;
+    }
+
+    .page-box {
+        aspect-ratio: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        background: #1a1a1a;
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        font-size: 11px;
+        color: var(--text-muted);
+        transition: all var(--transition);
+        cursor: pointer;
+        min-height: 44px;
+    }
+
+    .page-box:hover {
+        transform: scale(1.05);
+        filter: brightness(1.3);
+        z-index: 10;
+    }
+
+    .page-box.completed {
+        background: rgba(16, 185, 129, 0.1);
+        border-color: var(--accent-green);
+        color: #fff;
+    }
+
+    /* Scrollbar Removal Utility */
+    .no-scrollbar::-webkit-scrollbar {
+        display: none;
+    }
+
+    .no-scrollbar {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+    }
+
+    /* Modal Footer Styling */
+    .modal-footer {
+        padding: clamp(1rem, 5vw, 2rem);
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        border-top: 1px solid var(--border-color);
+        background: var(--modal-bg);
+    }
+
+    .modal-footer .ac-btn {
+        width: 100%;
+        min-height: 48px;
+        justify-content: center;
+        font-weight: 600;
+        font-size: 0.9rem;
+    }
+
+    /* TABLET BREAKPOINT */
+    @media (min-width: 768px) {
+        .modal-content {
+            width: 90vw;
+            height: auto;
+            max-width: 720px;
+            max-height: 85vh;
+            border-radius: 12px;
+        }
+
+        .modal-body {
+            max-height: calc(85vh - 160px);
+        }
+
+        .detail-modal-body {
+            grid-template-columns: 4fr 6fr;
+        }
+
+        .page-status-grid {
+            grid-template-columns: repeat(6, 1fr);
+        }
+
+        .modal-footer {
+            flex-direction: row;
+            justify-content: flex-end;
+        }
+
+        .modal-footer .ac-btn {
+            width: auto;
+            min-width: 140px;
+        }
+    }
+
+    /* DESKTOP BREAKPOINT */
+    @media (min-width: 1280px) {
+        .modal-content {
+            max-width: 680px;
+        }
+
+        .page-status-grid {
+            grid-template-columns: repeat(5, 1fr);
+        }
+    }
+
+    .ac-btn-primary.w-100 {
+        width: 100%;
+        justify-content: center;
+        padding: 12px;
+    }
+
+    /* Expandable Details Row Styling */
+    .ac-table tbody tr.main-row {
+        cursor: pointer;
+        transition: background-color 200ms ease;
+    }
+
+    .ac-table tbody tr.main-row:hover {
+        background-color: rgba(220, 38, 38, 0.05) !important;
+    }
+
+    .ac-details-row {
+        display: none;
+        background: #fafafa;
+    }
+
+    .ac-details-row.expanded {
+        display: table-row;
+    }
+
+    .ac-details-content {
+        padding: 20px;
+        animation: slideDown 300ms ease-out;
+    }
+
+    @keyframes slideDown {
+        from {
+            opacity: 0;
+            transform: translateY(-10px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .expansion-toggle {
+        background: none;
+        border: none;
+        color: var(--text-muted);
+        cursor: pointer;
+        padding: 4px;
+        transition: transform 200ms ease;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .main-row.expanded .expansion-toggle {
+        transform: rotate(180deg);
+        color: var(--accent-red);
+    }
+
+    .mini-audit-card {
+        background: #fff;
+        border: 1px solid #eee;
+        border-radius: 8px;
+        padding: 12px 16px;
+        margin-bottom: 8px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    }
+
+    .mini-audit-user {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .mini-audit-times {
+        font-size: 0.75rem;
+        color: #666;
+        display: flex;
+        gap: 15px;
+    }
+
+    .mini-audit-label {
+        font-weight: 700;
+        text-transform: uppercase;
+        font-size: 10px;
+        color: #999;
+        margin-right: 4px;
+    }
+
+    .pending-highlight {
+        color: var(--accent-red);
+        font-weight: 800;
+        text-decoration: underline;
+        text-underline-offset: 4px;
+        background: rgba(229, 62, 62, 0.05);
+        padding: 2px 6px;
+        border-radius: 4px;
+    }
+
+    .online-pulse {
+        width: 8px;
+        height: 8px;
+        background-color: #16a34a;
+        border-radius: 50%;
+        display: inline-block;
+        box-shadow: 0 0 0 rgba(22, 163, 74, 0.4);
+        animation: pulse 2s infinite;
+    }
+
+    .offline-dot {
+        width: 8px;
+        height: 8px;
+        background-color: #71717a;
+        border-radius: 50%;
+        display: inline-block;
+    }
+
+    @keyframes pulse {
+        0% {
+            transform: scale(0.95);
+            box-shadow: 0 0 0 0 rgba(22, 163, 74, 0.7);
+        }
+
+        70% {
+            transform: scale(1);
+            box-shadow: 0 0 0 6px rgba(22, 163, 74, 0);
+        }
+
+        100% {
+            transform: scale(0.95);
+            box-shadow: 0 0 0 0 rgba(22, 163, 74, 0);
+        }
+    }
+
+    /* Improved Action Button Visibility */
+    .ac-btn {
+        font-weight: 700 !important;
+        letter-spacing: 0.02em;
+        padding: 6px 16px !important;
+        border-radius: 6px !important;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        text-transform: none;
+    }
+
+    .ac-table .ac-btn-primary {
+        background: var(--ac-primary) !important;
+        color: white !important;
+        border: none !important;
+    }
+
+    .ac-table .ac-btn-outline {
+        border: 1.5px solid var(--ac-primary) !important;
+        color: var(--ac-primary) !important;
+        background: transparent;
+    }
+
+    .ac-table .ac-btn-outline:hover {
+        background: rgba(220, 38, 38, 0.05);
+    }
+
+    /* Specific prominent colors for the main table actions */
+    .btn-approve {
+        background: #16a34a !important;
+        /* Vibrant Green */
+        color: white !important;
+        border: none !important;
+    }
+
+    .btn-approve:hover {
+        background: #15803d !important;
+    }
+
+    .btn-reject-main {
+        background: #f59e0b !important;
+        /* Vibrant Orange/Amber */
+        color: white !important;
+        border: none !important;
+    }
+
+    .btn-download-docx {
+        background: #2b5797 !important;
+        color: white !important;
+        border: none !important;
+    }
+
+    .btn-download-docx:hover {
+        background: #1e3e6d !important;
+    }
+
+    .btn-reject-main:hover {
+        background: #d97706 !important;
+    }
+
+    .btn-download {
+        background: #2563eb !important;
+        /* Vibrant Blue */
+        color: white !important;
+        border: none !important;
+    }
+
+    .btn-download:hover {
+        background: #1d4ed8 !important;
+    }
+
+    .trace-action-btn {
+        padding: 4px 14px;
+        font-size: 11px;
+        font-weight: 700;
+        border-radius: 6px;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.2s;
+        cursor: pointer;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+    }
+
+    .trace-btn-view {
+        background: #2563eb;
+        /* Strong Blue instead of faint */
+        color: #ffffff;
+        border: 1px solid #1d4ed8;
+    }
+
+    .trace-btn-view:hover {
+        background: #1d4ed8;
+        box-shadow: 0 2px 6px rgba(37, 99, 235, 0.3);
+    }
+
+    .btn-retry {
+        background: #6366f1 !important;
+        /* Indigo */
+        color: white !important;
+        border: none !important;
+    }
+
+    .btn-retry:hover {
+        background: #4f46e5 !important;
+    }
+
+    .trace-btn-reject {
+        background: #dc2626;
+        /* Strong Red instead of faint */
+        color: #ffffff;
+        border: 1px solid #b91c1c;
+    }
+
+    .trace-btn-approve {
+        background: #16a34a;
+        /* Strong Green */
+        color: #ffffff;
+        border: 1px solid #15803d;
+        margin-right: 4px;
+    }
+
+    .trace-btn-approve:hover {
+        background: #15803d;
+        box-shadow: 0 2px 6px rgba(22, 163, 74, 0.3);
+    }
+
+    .trace-btn-reject:hover {
+        background: #b91c1c;
+        box-shadow: 0 2px 6px rgba(220, 38, 38, 0.3);
+    }
+
+    /* Horizontal Scroll for Assigned To Column */
+    .col-assigned {
+        max-width: 280px;
+        min-width: 150px;
+    }
+
+    .ac-assignees {
+        display: flex;
+        overflow-x: auto;
+        white-space: nowrap;
+        gap: 6px;
+        padding: 4px 0;
+        scrollbar-width: none;
+        /* Firefox */
+        -ms-overflow-style: none;
+        /* IE/Edge */
+    }
+
+    .ac-assignees::-webkit-scrollbar {
+        display: none;
+        /* Chrome/Safari/Brave */
+    }
+
+    .ac-assignee-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        padding: 2px 8px;
+        border-radius: 6px;
+        font-size: 11px;
+        font-weight: 700;
+        color: #475569;
+        flex-shrink: 0;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    }
+
+    .ac-assignee-item .status-icon {
+        font-size: 12px;
+    }
+</style>
+
+<script>
+    // Global state
+    let allDocuments = [];
+    let allResources = [];
+    let activePageId = null;
+    let expandedDocId = null;
+    let pendingRejectionId = null;
+    let pendingApprovalId = null;
+    let sortOrder = 'desc';
+
+    function toggleSort() {
+        sortOrder = sortOrder === 'asc' ? 'desc' : 'asc';
+        renderDocuments();
+    }
+
+    let searchTimeout = null;
+    function filterDocuments() {
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(() => {
+            fetchDocuments();
+        }, 300);
+    }
+
+    let nextUrl = null;
+    let prevUrl = null;
+
+    async function fetchDocuments(url = '/api/admin/documents/') {
+        try {
+            // Append filters if using base URL
+            if (url === '/api/admin/documents/') {
+                const searchTerm = document.getElementById('docSearch').value;
+                const statusFilter = document.getElementById('docStatusFilter').value;
+                const params = new URLSearchParams();
+                if (searchTerm) params.append('search', searchTerm);
+                if (statusFilter && statusFilter !== 'ALL') params.append('status', statusFilter);
+                
+                const qs = params.toString();
+                if (qs) url += '?' + qs;
+            }
+
+            const response = await fetch(url);
+            const data = await response.json();
+
+            // Handle DRF Paginated Response
+            if (data.results) {
+                allDocuments = data.results;
+                nextUrl = data.next;
+                prevUrl = data.previous;
+
+                const countText = document.getElementById('docCountText');
+                const total = data.count || allDocuments.length;
+                countText.innerHTML = `Total Documents: ${total}`;
+
+                document.getElementById('prevBtn').disabled = !prevUrl;
+                document.getElementById('nextBtn').disabled = !nextUrl;
+            } else {
+                allDocuments = data;
+                nextUrl = null;
+                prevUrl = null;
+            }
+
+            renderDocuments();
+        } catch (err) {
+            console.error(err);
+            const tbody = document.getElementById('document-table-body');
+            tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: red; padding: 40px;">Failed to load documents.</td></tr>';
+        }
+    }
+
+    async function fetchResources() {
+        try {
+            const response = await fetch('/api/admin/resources/');
+            const data = await response.json();
+            allResources = data.results || data;
+
+            const select = document.getElementById('reassign-resource-select');
+            select.innerHTML = '<option value="">Select Resource...</option>' +
+                allResources.map(r => `<option value="${r.user_id}">${r.username} (Pri: ${r.priority})</option>`).join('');
+        } catch (err) {
+            console.error("Failed to fetch resources:", err);
+        }
+    }
+
+    function changePage(direction) {
+        if (direction === 'next' && nextUrl) {
+            fetchDocuments(nextUrl);
+        } else if (direction === 'prev' && prevUrl) {
+            fetchDocuments(prevUrl);
+        }
+    }
+
+    function renderDocuments() {
+        const tbody = document.getElementById('document-table-body');
+        
+        // We now use allDocuments directly as it's filtered by the API
+        let filteredDocs = [...allDocuments];
+
+        filteredDocs.sort((a, b) => {
+            if (sortOrder === 'asc') return a.id < b.id ? -1 : 1;
+            return a.id > b.id ? -1 : 1;
+        });
+
+        const pagination = document.getElementById('docPagination');
+        if (allDocuments.length > 0 || nextUrl || prevUrl) {
+            pagination.style.display = 'flex';
+        } else {
+            pagination.style.display = 'none';
+        }
+
+        if (filteredDocs.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 40px; color:var(--ac-text-secondary);">No documents found matching your criteria.</td></tr>';
+            return;
+        }
+
+        let html = '';
+        filteredDocs.forEach(doc => {
+            let statusClass = 'ac-status-pill';
+            let gStatus = doc.granular_status || doc.status;
+            
+            // Map display labels for consistency with filter
+            if (gStatus === 'All Pages Submitted') gStatus = 'Ready for Merging';
+            if (gStatus === 'Merge Complete' || gStatus === 'Approved by Admin') gStatus = 'Completed';
+
+            if (gStatus === 'Completed' || gStatus === 'Ready for Merging') statusClass += ' active';
+            else if (gStatus === 'Failed') statusClass += ' inactive';
+            else if (gStatus === 'Reviewing' || gStatus === 'Awaiting Approval' || gStatus === 'Validating Pages') statusClass += ' ac-status-pill-warning';
+            else if (gStatus === 'Started' || gStatus.includes('Partially')) statusClass += ' processing-status';
+
+            const statusBadge = `<span class="${statusClass}">${gStatus}</span>`;
+
+            // Build mini-audit for expandable section
+            let miniAuditHtml = '';
+            if (doc.assigned_resources && doc.assigned_resources.length > 0) {
+                const groupedByResource = {};
+                doc.assigned_resources.forEach((res) => {
+                    const key = res.username || 'Unknown';
+                    if (!groupedByResource[key]) {
+                        groupedByResource[key] = {
+                            username: key,
+                            pages: [],
+                            started_at: res.download_started_at || res.viewed_at || null,
+                            submitted_at: res.submitted_at || res.completed_at || null,
+                            status_raw: res.status_raw,
+                            resource_profile_id: res.resource_profile_id,
+                            processed_count: 0,
+                        };
+                    }
+                    groupedByResource[key].pages.push(res.page_number);
+                    if (res.resource_profile_id != null) {
+                        groupedByResource[key].resource_profile_id = res.resource_profile_id;
+                    }
+                    if (!groupedByResource[key].started_at && (res.download_started_at || res.viewed_at)) {
+                        groupedByResource[key].started_at = res.download_started_at || res.viewed_at;
+                    }
+                    if (res.submitted_at || res.completed_at) {
+                        groupedByResource[key].submitted_at = res.submitted_at || res.completed_at;
+                    }
+                    if (res.status_raw === 'IN_PROGRESS') {
+                        groupedByResource[key].status_raw = 'IN_PROGRESS';
+                    }
+                    if (res.processed_file) {
+                        groupedByResource[key].processed_count += 1;
+                    }
+                });
+                miniAuditHtml = Object.values(groupedByResource).map(res => {
+                    const sortedPages = (res.pages || []).slice().sort((a, b) => a - b);
+                    const pageLabel = formatPageRange(sortedPages);
+                    const startedAt = res.started_at ? new Date(res.started_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Not Started';
+                    const submittedAt = res.submitted_at
+                        ? new Date(res.submitted_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+                        : `<span class="pending-highlight">Pending</span>`;
+
+                    let resIcon = '⚪';
+                    if (res.submitted_at) resIcon = '✅';
+                    else if (res.started_at) resIcon = '👁️';
+
+                    // SLA Logic
+                    let slaHtml = '';
+                    if (!res.submitted_at && res.started_at) {
+                        slaHtml = `<div style="color:var(--accent-amber); font-weight:700; font-size:0.75rem;">IN_PROGRESS</div>`;
+                    }
+
+                    return `
+                    <div class="mini-audit-card">
+                        <div class="mini-audit-user">
+                            <span style="font-size: 1.1rem;">${resIcon}</span>
+                            <div>
+                                <div style="font-weight:600; font-size: 0.85rem; display:flex; align-items:center; gap:6px;">
+                                    ${res.is_online ? '<span class="online-pulse"></span>' : '<span class="offline-dot"></span>'}
+                                    ${res.username}
+                                    <span style="font-size: 10px; color: #999; margin-left: 4px;">
+                                        (${res.status_raw || 'ASSIGNED'})
+                                    </span>
+                                </div>
+                                <div style="font-size: 0.7rem; color: #888;">Pages ${pageLabel}</div>
+                            </div>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:20px;">
+                            ${slaHtml}
+                            <div class="mini-audit-times">
+                                <div><span class="mini-audit-label">Started</span> ${startedAt}</div>
+                                <div><span class="mini-audit-label">Submitted</span> ${submittedAt}</div>
+                            </div>
+                            ${res.processed_count > 0 && res.resource_profile_id != null
+                                ? `<a href="/api/admin/documents/${doc.id}/resource-processed-bundle/?resource_profile_id=${res.resource_profile_id}" target="_blank" class="trace-action-btn trace-btn-view">Download (${res.processed_count} page${res.processed_count === 1 ? '' : 's'})</a>`
+                                : ''}
+                        </div>
+                    </div>`;
+                }).join('');
+            } else {
+                miniAuditHtml = '<div style="text-align:center; padding: 15px; color:#999; font-size:0.8rem;">Ready for assignment. No resource activity yet.</div>';
+            }
+
+            let assignedToHtml = '<div class="ac-assignees">';
+            if (doc.assigned_resources && doc.assigned_resources.length > 0) {
+                // Only show active or completed assignments, skip rejected/revoked in the summary
+                const activeAssignments = doc.assigned_resources.filter(res =>
+                    res.status_raw !== 'REJECTED' && res.status_raw !== 'REVOKED' && res.status_raw !== 'EXPIRED' && res.status_raw !== 'REASSIGNED'
+                );
+
+                if (activeAssignments.length > 0) {
+                    const shownUsers = new Set();
+                    activeAssignments.forEach(res => {
+                        if (shownUsers.has(res.username)) return;
+                        shownUsers.add(res.username);
+                        
+                        let resStatusIcon = '⚪';
+                        if (res.completed_at) resStatusIcon = '✅';
+                        else if (res.viewed_at) resStatusIcon = '👁️';
+
+                        assignedToHtml += `<div class="ac-assignee-item" title="${res.status}">
+                            <span class="status-icon">${resStatusIcon}</span>
+                            <span class="username">${res.username}</span>
+                        </div>`;
+                    });
+                } else {
+                    assignedToHtml += '<span class="text-muted small">Unassigned / Pending Reassignment</span>';
+                }
+            } else {
+                assignedToHtml += '<span class="text-muted small">Unassigned</span>';
+            }
+            assignedToHtml += '</div>';
+
+            let actions = '<div class="btn-group">';
+            // View button now links to the merged PDF if available
+            const viewUrl = doc.final_file || '#';
+            const viewAttr = doc.final_file ? `onclick="window.open('${viewUrl}', '_blank')"` : `onclick="event.stopPropagation(); showDocDetails('${doc.id}')"`;
+
+            // actions += `
+            // <button ${viewAttr} class="ac-btn ac-btn-outline" style="padding: 4px 12px; font-size:12px;">Views</button>`;
+
+            if (doc.status === 'FAILED' || doc.pipeline_status === 'FAILED') {
+                actions += `
+                <button onclick="event.stopPropagation(); retryDocument('${doc.id}')" class="ac-btn btn-retry">Retry</button>`;
+            }
+
+            const resources = doc.assigned_resources || [];
+            const allUploadsCompleted =
+                resources.length > 0 &&
+                resources.every((r) => Boolean(r.submitted_at || r.completed_at || (r.status_raw === 'COMPLETED')));
+            const hasLegacyZipFinal =
+                !!doc.final_merged_file &&
+                String(doc.final_merged_file).toLowerCase().endsWith('.zip');
+            const canMerge = allUploadsCompleted && (!doc.final_merged_file || hasLegacyZipFinal);
+            if (canMerge) {
+                actions += `
+                <button onclick="event.stopPropagation(); mergeDocument('${doc.id}')" class="ac-btn btn-approve">${hasLegacyZipFinal ? 'Re-Merge' : 'Merge'}</button>`;
+            }
+
+            const canDownload = !!doc.final_merged_file;
+            const downloadBtnClass = canDownload ? 'btn-download-docx' : 'disabled';
+            const downloadBtnDisabled = canDownload ? '' : 'pointer-events:none; opacity:0.5;';
+
+            actions += `
+            <button id="download-btn-${doc.id}" onclick="event.stopPropagation(); downloadDocument('${doc.id}')" class="ac-btn ${downloadBtnClass}" style="${downloadBtnDisabled}">Download</button>
+            <button onclick="event.stopPropagation(); deleteDocument('${doc.id}')" class="ac-btn" style="padding: 4px; color:var(--accent-red); background:none; border:none; margin-left:8px;">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M3 6h18m-2 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"></path>
+                </svg>
+            </button>`;
+            actions += '</div>';
+
+
+
+            const isExpanded = String(expandedDocId) === String(doc.id);
+            html += `
+            <tr id="row-${doc.id}" class="main-row" onclick="toggleDetails('${doc.id}')">
+                <td class="col-exp">
+                    <button class="expansion-toggle">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                            <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                    </button>
+                </td>
+                <td class="ac-filename-cell col-name">
+                    <strong style="color:var(--ac-text-primary); font-size:14px;">${doc.title || doc.name || 'Untitled'}</strong>
+                    <div style="font-size: 10px; color: var(--text-muted);">${doc.doc_ref || ''}</div>
+                </td>
+                <td class="col-version" style="text-align:center;"><span class="badge" style="background:#f1f5f9; color:#475569; font-size:11px;">v${doc.version || 1}</span></td>
+                <td class="col-pages" style="text-align:center;"><span class="badge bg-light text-dark" style="font-weight:600; font-size:12px; border: 1px solid #ddd;">${doc.total_pages || 0}</span></td>
+
+                <td class="col-assigned">${assignedToHtml}</td>
+                <td class="col-status">${statusBadge}</td>
+                <td class="col-created" style="color:var(--ac-text-secondary); font-size:13px; white-space: nowrap;">${new Date(doc.created_at || doc.uploaded_at || Date.now()).toLocaleDateString()}</td>
+                <td class="col-actions" style="text-align:right;">${actions}</td>
+            </tr>
+            <tr id="details-${doc.id}" class="ac-details-row${isExpanded ? ' expanded' : ''}">
+                <td colspan="8">
+                    <div class="ac-details-content">
+                        <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 15px;">
+                            <div>
+                                <h4 style="margin:0; font-size:0.9rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--accent-red); font-weight:800;">Assignment Trace</h4>
+                                <p style="margin:2px 0 0; font-size:0.75rem; color:#666;">Resource activity and timestamps for this document.</p>
+                            </div>
+                        </div>
+                        <div class="mini-audit-grid">
+                            ${miniAuditHtml}
+                        </div>
+                    </div>
+                </td>
+            </tr>
+            `;
+        });
+        tbody.innerHTML = html;
+        if (expandedDocId) {
+            const activeRow = document.getElementById(`row-${expandedDocId}`);
+            const activeDetails = document.getElementById(`details-${expandedDocId}`);
+            if (activeRow && activeDetails) {
+                activeRow.classList.add('expanded');
+                activeDetails.classList.add('expanded');
+            } else {
+                expandedDocId = null;
+            }
+        }
+    }
+
+    function toggleDetails(docId) {
+        const row = document.getElementById(`row-${docId}`);
+        const details = document.getElementById(`details-${docId}`);
+        const isExpanded = row.classList.contains('expanded');
+
+        // Close all other rows first (optional, for accordion effect)
+        document.querySelectorAll('.main-row.expanded').forEach(r => {
+            if (r.id !== `row-${docId}`) {
+                r.classList.remove('expanded');
+                const dId = r.id.replace('row-', 'details-');
+                document.getElementById(dId).classList.remove('expanded');
+            }
+        });
+
+        row.classList.toggle('expanded');
+        details.classList.toggle('expanded');
+        expandedDocId = isExpanded ? null : String(docId);
+    }
+
+    function deleteDocument(id) {
+        if (typeof showConfirm === 'function') {
+            showConfirm("Are you sure you want to delete this document? This action cannot be undone.", async () => {
+                await executeDelete(id);
+            });
+        } else if (confirm("Are you sure you want to delete this document?")) {
+            executeDelete(id);
+        }
+    }
+
+    async function retryDocument(id) {
+        try {
+            // showToast('Retrying processing...', 'info');
+            const response = await fetch(`/api/v1/documents/${id}/retry/`, {
+                method: 'POST',
+                headers: { 'X-CSRFToken': '{{ csrf_token }}' }
+            });
+            if (response.ok) {
+                showToast('Processing restarted.', 'success');
+                fetchDocuments();
+            } else {
+                const err = await response.json();
+                showToast(err.error || 'Retry failed.', 'error');
+            }
+        } catch (err) {
+            console.error(err);
+            showToast('Network error.', 'error');
+        }
+    }
+
+    async function executeDelete(id) {
+        try {
+            const response = await fetch(`/api/admin/documents/${id}/`, {
+                method: 'DELETE',
+                headers: { 'X-CSRFToken': '{{ csrf_token }}' }
+            });
+            if (response.ok || response.status === 204) {
+                showToast("Document soft-deleted successfully");
+                fetchDocuments();
+            } else {
+                const err = await response.json();
+                showToast("Deletion Rejected: " + (err.error || "Document is currently active."), "error");
+            }
+        } catch (e) {
+            console.error(e);
+            showToast("An error occurred during deletion", "error");
+        }
+    }
+
+    async function downloadDocument(id) {
+        try {
+            const doc = allDocuments.find((d) => String(d.id) === String(id));
+            if (!doc || !doc.final_merged_file) return;
+            const isLegacyZip = String(doc.final_merged_file).toLowerCase().endsWith('.zip');
+            if (isLegacyZip) {
+                const resources = doc.assigned_resources || [];
+                const allUploadsCompleted =
+                    resources.length > 0 &&
+                    resources.every((r) => Boolean(r.submitted_at || r.completed_at || (r.status_raw === 'COMPLETED')));
+                if (allUploadsCompleted) {
+                    showToast("Re-merging to generate a single final file...", "info");
+                    await mergeDocument(id);
+                    return;
+                }
+            }
+            window.open(doc.final_merged_file, "_blank");
+        } catch (err) {
+            console.error(err);
+        }
+    }
+
+    async function mergeDocument(id) {
+        try {
+            const response = await fetch(`/api/admin/documents/${id}/merge/`, {
+                method: 'POST',
+                headers: { 'X-CSRFToken': '{{ csrf_token }}' }
+            });
+            if (response.ok) {
+                showToast("Merge completed successfully.", "success");
+                const payload = await response.json().catch(() => ({}));
+                await fetchDocuments();
+                if (payload && payload.merged_file) {
+                    window.open(payload.merged_file, "_blank");
+                } else {
+                    const fresh = allDocuments.find((d) => String(d.id) === String(id));
+                    if (fresh && fresh.final_merged_file) window.open(fresh.final_merged_file, "_blank");
+                }
+            } else {
+                const err = await response.json().catch(() => ({}));
+                showToast(err.reason || err.detail || "Merge failed.", "error");
+            }
+        } catch (err) {
+            console.error(err);
+            showToast("Network error during merge.", "error");
+        }
+    }
+
+    async function handleAction(id, action) {
+        if (action === 'reject') {
+            // CRITICAL FIX: For rejection, we must call the processing/work endpoint
+            // which calls reassign_rejected_assignment() and triggers the assignment engine.
+            // The documents endpoint only resets status without triggering reassignment.
+            try {
+                // First, fetch the active assignments for this document
+                const docData = allDocuments.find(d => d.id === id);
+                const activeAssignments = (docData?.assigned_resources || []).filter(
+                    r => r.status_raw === 'ASSIGNED' || r.status_raw === 'IN_PROGRESS' || r.status_raw === 'SUBMITTED'
+                );
+
+                if (activeAssignments.length === 0) {
+                    showToast('No active assignments to reject.', 'warning');
+                    return;
+                }
+
+                showToast(`Rejecting block of ${activeAssignments.length} assignment(s)...`, 'info');
+
+                // Single call -- backend handles the full block rejection
+                const primaryId = activeAssignments[0].id;
+                const resp = await fetch(`/api/v1/processing/admin/assignments/${primaryId}/reject/`, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': '{{ csrf_token }}',
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (resp.ok) {
+                    const result = await resp.json();
+                    if (result.new_resource) {
+                        showToast(result.message || `Block reassigned to ${result.new_resource}!`, 'success');
+                    } else {
+                        showToast(result.message || 'Block rejected. No resources available yet.', 'info');
+                    }
+                    setTimeout(() => fetchDocuments(), 1500);
+                } else {
+                    const err = await resp.json().catch(() => ({}));
+                    showToast('Rejection failed: ' + (err.error || 'Unknown error'), 'error');
+                }
+            } catch (e) {
+                console.error(e);
+                showToast('Network error during rejection', 'error');
+            }
+            return;
+        }
+
+        // Default action handler (for approve, etc.)
+        try {
+            const response = await fetch(`/api/v1/documents/${id}/${action}/`, {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': '{{ csrf_token }}',
+                    'Content-Type': 'application/json'
+                }
+            });
+            if (response.ok) {
+                const result = await response.json();
+                showToast(`Document ${action}d successfully!`);
+                fetchDocuments();
+            } else {
+                const err = await response.json();
+                showToast("Action failed: " + (err.error || "Unknown error"), "error");
+            }
+        } catch (e) {
+            console.error(e);
+            showToast("Network error", "error");
+        }
+    }
+
+    function rejectAssignment(assignmentId) {
+        pendingRejectionId = assignmentId;
+        const modal = document.getElementById('reject-confirm-modal');
+        modal.classList.add('active');
+        modal.removeAttribute('aria-hidden');
+        trapFocus(modal);
+    }
+
+    function closeRejectModal() {
+        const modal = document.getElementById('reject-confirm-modal');
+        modal.classList.remove('active');
+        modal.setAttribute('aria-hidden', 'true');
+        pendingRejectionId = null;
+    }
+
+    function approveAssignment(assignmentId) {
+        pendingApprovalId = assignmentId;
+        const modal = document.getElementById('approve-confirm-modal');
+        modal.classList.add('active');
+        modal.removeAttribute('aria-hidden');
+        trapFocus(modal);
+    }
+
+    function closeApproveModal() {
+        const modal = document.getElementById('approve-confirm-modal');
+        modal.classList.remove('active');
+        modal.setAttribute('aria-hidden', 'true');
+        pendingApprovalId = null;
+    }
+
+    async function executeApproval(id) {
+        try {
+            // showToast("Approving assignment...", "info");
+            const response = await fetch(`/api/v1/processing/admin/assignments/${id}/approve/`, {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': '{{ csrf_token }}',
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (response.ok) {
+                const result = await response.json();
+                showToast(result.message || "Assignment approved successfully!", "success");
+                fetchDocuments();
+            } else {
+                const err = await response.json().catch(() => ({}));
+                showToast("Approval failed: " + (err.error || "Unknown error"), "error");
+            }
+        } catch (err) {
+            console.error(err);
+            showToast("Network error during approval", "error");
+        }
+    }
+
+    // Set up the confirmation buttons once
+    document.addEventListener('DOMContentLoaded', () => {
+        const confirmRejectBtn = document.getElementById('execute-rejection-btn');
+        if (confirmRejectBtn) {
+            confirmRejectBtn.addEventListener('click', async () => {
+                if (!pendingRejectionId) return;
+
+                // Show loading state
+                confirmRejectBtn.disabled = true;
+                confirmRejectBtn.innerText = "Processing...";
+
+                try {
+                    const response = await fetch(`/api/v1/processing/admin/assignments/${pendingRejectionId}/reject/`, {
+                        method: 'POST',
+                        headers: {
+                            'X-CSRFToken': '{{ csrf_token }}',
+                            'Content-Type': 'application/json'
+                        }
+                    });
+
+                    if (response.ok) {
+                        const result = await response.json();
+                        showToast(`Effectively rejected. ${result.new_resource ? 'Reassigned to ' + result.new_resource : ''}`);
+                        closeRejectModal();
+                        fetchDocuments();
+                    } else {
+                        const err = await response.json();
+                        showToast("Rejection failed: " + (err.error || "Unknown error"), "error");
+                    }
+                } catch (err) {
+                    console.error(err);
+                    showToast("Network error", "error");
+                } finally {
+                    confirmRejectBtn.disabled = false;
+                    confirmRejectBtn.innerText = "Confirm Rejection";
+                }
+            });
+        }
+
+        const confirmApproveBtn = document.getElementById('execute-approval-btn');
+        if (confirmApproveBtn) {
+            confirmApproveBtn.addEventListener('click', async () => {
+                if (!pendingApprovalId) return;
+
+                // Show loading state
+                confirmApproveBtn.disabled = true;
+                confirmApproveBtn.innerText = "Processing...";
+
+                await executeApproval(pendingApprovalId);
+
+                confirmApproveBtn.disabled = false;
+                confirmApproveBtn.innerText = "Confirm Approval";
+                closeApproveModal();
+            });
+        }
+    });
+
+    async function executeBlockAction(assignmentId, action) {
+        let reason = '';
+        if (action === 'reject') {
+            reason = prompt("Enter rejection reason:");
+            if (reason === null) return;
+        }
+
+        const confirmMsg = action === 'approve' ? "Approve this entire block?" : "Reject this entire block?";
+        if (!confirm(confirmMsg)) return;
+
+        try {
+            const url = action === 'approve'
+                ? `/api/v1/processing/admin/assignments/${assignmentId}/approve/`
+                : `/api/v1/processing/admin/assignments/${assignmentId}/reject/`;
+
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': '{{ csrf_token }}',
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    reason: action === 'reject' ? 'QUALITY_FAIL' : '',
+                    notes: reason
+                })
+            });
+
+            if (response.ok) {
+                showToast(`Block ${action}d successfully`);
+                fetchDocuments();
+                // Optionally close and reopen details to refresh
+                const docDetailsModal = document.getElementById('doc-details-modal');
+                // If it's open, try to find current doc id and refresh
+                const docId = docDetailsModal.getAttribute('data-doc-id');
+                if (docId) showDocDetails(docId);
+            } else {
+                const err = await response.json();
+                showToast(`Failed: ${err.error || 'Unknown error'}`, 'error');
+            }
+        } catch (e) {
+            console.error(e);
+            showToast("Network error", "error");
+        }
+    }
+
+    function escapeHtml(value) {
+        if (value === null || value === undefined) return '';
+        return String(value)
+            .replaceAll('&', '&amp;')
+            .replaceAll('<', '&lt;')
+            .replaceAll('>', '&gt;')
+            .replaceAll('"', '&quot;')
+            .replaceAll("'", '&#39;');
+    }
+
+    function formatDateTime(value) {
+        if (!value) return 'N/A';
+        try {
+            return new Date(value).toLocaleString();
+        } catch (e) {
+            return value;
+        }
+    }
+
+    async function openAssignmentArtifacts(assignmentId) {
+        const modal = document.getElementById('assignment-artifacts-modal');
+        const title = document.getElementById('assignment-artifacts-title');
+        const body = document.getElementById('assignment-artifacts-body');
+
+        title.innerText = 'Assignment Upload Details';
+        body.innerHTML = '<div style="text-align:center; padding:24px; color:var(--text-muted);">Loading uploaded files...</div>';
+        modal.classList.add('active');
+        modal.removeAttribute('aria-hidden');
+        trapFocus(modal);
+
+        try {
+            const resp = await fetch(`/api/v1/processing/admin/assignments/${assignmentId}/artifacts/`);
+            if (!resp.ok) {
+                throw new Error(`Failed with status ${resp.status}`);
+            }
+            const data = await resp.json();
+
+            const header = `
+                <div style="display:grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap:10px; margin-bottom:14px;">
+                    <div class="assignment-row" style="display:block;">
+                        <div class="info-label">Document</div>
+                        <div class="info-value">${escapeHtml(data.document_name || data.document_ref || '-')}</div>
+                    </div>
+                    <div class="assignment-row" style="display:block;">
+                        <div class="info-label">Resource</div>
+                        <div class="info-value">${escapeHtml(data.resource || '-')}</div>
+                    </div>
+                    <div class="assignment-row" style="display:block;">
+                        <div class="info-label">Pages Uploaded</div>
+                        <div class="info-value">${escapeHtml(data.uploaded_pages || 0)} / ${escapeHtml(data.total_pages || 0)}</div>
+                    </div>
+                    <div class="assignment-row" style="display:block;">
+                        <div class="info-label">Changes</div>
+                        <div class="info-value">${escapeHtml(data.total_blocks_edited || 0)} blocks, ${escapeHtml(data.total_words_processed || 0)} words</div>
+                    </div>
+                </div>
+            `;
+
+            const rows = (data.pages || []).map((page) => {
+                const uploadHtml = page.artifact_file_url
+                    ? `<a href="${page.artifact_file_url}" target="_blank" class="trace-action-btn trace-btn-view" style="text-decoration:none;">Open File</a>`
+                    : '<span style="color:#ef4444; font-size:12px; font-weight:700;">No uploaded file</span>';
+                const notes = page.resource_notes ? `<div style="font-size:12px; color:#9ca3af; margin-top:6px;">Notes: ${escapeHtml(page.resource_notes)}</div>` : '';
+                const label = page.is_bundle ? `Bundle (Pages ${escapeHtml(page.display_label)})` : `Page ${escapeHtml(page.page_number)}`;
+                
+                return `
+                    <div class="assignment-row" style="display:block; margin-bottom:10px;">
+                        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px;">
+                            <div>
+                                <div style="font-weight:800; color:#fff;">${label}</div>
+                                <div style="font-size:12px; color:#9ca3af;">
+                                    Assignment: ${escapeHtml(page.assignment_status_display || page.assignment_status || '-')}
+                                    | Submission: ${escapeHtml(page.submission_status_display || page.submission_status || 'Pending')}
+                                </div>
+                                <div style="font-size:12px; color:#cbd5e1; margin-top:4px;">
+                                    Changes: ${escapeHtml(page.blocks_edited || 0)} / ${escapeHtml(page.blocks_total || 0)} blocks
+                                    | Words: ${escapeHtml(page.words_processed || 0)}
+                                </div>
+                                <div style="font-size:12px; color:#9ca3af; margin-top:4px;">
+                                    Submitted: ${escapeHtml(formatDateTime(page.submission_submitted_at || page.submitted_at))}
+                                    | Reviewed: ${escapeHtml(formatDateTime(page.reviewed_at))}
+                                </div>
+                                ${notes}
+                            </div>
+                            <div style="display:flex; gap:8px; align-items:center;">
+                                ${uploadHtml}
+                                <a href="${page.workspace_url}" target="_blank" class="trace-action-btn trace-btn-view" style="text-decoration:none;">Workspace</a>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            body.innerHTML = header + (rows || '<div style="color:var(--text-muted); text-align:center; padding:24px;">No assignment pages found.</div>');
+        } catch (err) {
+            console.error(err);
+            body.innerHTML = '<div style="text-align:center; color:var(--accent-red); padding:24px;">Failed to load uploaded files for this assignment.</div>';
+        }
+    }
+
+    function closeAssignmentArtifacts() {
+        const modal = document.getElementById('assignment-artifacts-modal');
+        modal.classList.remove('active');
+        modal.setAttribute('aria-hidden', 'true');
+    }
+
+    function showDocDetails(docId) {
+        const doc = allDocuments.find(d => d.id === docId);
+        if (!doc) return;
+
+        const modal = document.getElementById('doc-details-modal');
+        modal.setAttribute('data-doc-id', docId);
+        const content = document.getElementById('modal-doc-content');
+
+        // Build assignments summary
+        let assignmentsInfo = '';
+        if (doc.assigned_resources && doc.assigned_resources.length > 0) {
+            assignmentsInfo = doc.assigned_resources.map(res => {
+                let statusClass = 'waiting';
+                if (res.status_raw === 'REASSIGNED') statusClass = 'reassigned';
+                else if (res.completed_at) statusClass = 'completed';
+                else if (res.viewed_at) statusClass = 'processing';
+
+                const startedAt = res.viewed_at ? new Date(res.viewed_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Not Started';
+                const submittedAt = res.completed_at ? new Date(res.completed_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Pending';
+
+                let actionsHtml = '';
+                if (res.status_raw === 'SUBMITTED' && doc.pipeline_status === 'ALL_SUBMITTED') {
+                    actionsHtml = `
+                        <div class="block-actions" style="margin-top: 10px; display: flex; gap: 8px;">
+                            <button class="btn btn-sm btn-success" onclick="executeBlockAction(${res.id}, 'approve')">Approve Block</button>
+                            <button class="btn btn-sm btn-danger" onclick="executeBlockAction(${res.id}, 'reject')">Reject Block</button>
+                            <a href="/processing/workspace/${doc.doc_ref}/${res.start_page}/?block_view=true" class="btn btn-sm btn-info" target="_blank">View Block</a>
+                        </div>
+                    `;
+                } else if (res.status_raw === 'APPROVED') {
+                    actionsHtml = `
+                        <div class="block-actions" style="margin-top: 10px;">
+                            <a href="/processing/workspace/${doc.doc_ref}/${res.start_page}/?block_view=true" class="btn btn-sm btn-info" target="_blank">View Edited Work</a>
+                        </div>
+                    `;
+                }
+
+                return `
+                <div class="assignment-row" style="flex-direction: column; align-items: flex-start;">
+                    <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
+                        <div class="assignment-info">
+                            <div style="font-size: 1.2rem; display: flex; align-items: center;">
+                                ${resStatusIcon}
+                            </div>
+                            <div>
+                                <div class="assignment-user">${res.username} <small style="color:var(--text-muted)"> (Pages ${res.page_number})</small></div>
+                                <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 2px;">
+                                    <span>Started: ${startedAt}</span>
+                                    <span style="margin-left: 10px;">Submitted: ${submittedAt}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <span class="status-pill ${statusClass}">${res.reassigned_to ? `Reassigned to ${res.reassigned_to}` : res.status}</span>
+                    </div>
+                    ${actionsHtml}
+                </div>
+            `;
+            }).join('');
+        } else {
+            assignmentsInfo = '<p class="text-muted" style="padding: 1rem; text-align: center; background: rgba(255,255,255,0.02); border-radius: 8px;">No resources assigned yet.</p>';
+        }
+
+        // Build individual pages view
+        let pagesHtml = '';
+        if (doc.pages && doc.pages.length > 0) {
+            pagesHtml = `
+                <div class="detail-section-title">Individual Pages</div>
+                <div class="page-status-grid">
+                    ${doc.pages.map(p => {
+                let cls = '';
+                let statusText = 'Pending';
+                if (p.status === 'COMPLETED') { cls = 'completed'; statusText = 'Completed'; }
+                else if (p.status === 'FAILED') { cls = 'failed'; statusText = 'Failed'; }
+                else if (p.status === 'PROCESSING') { cls = 'processing'; statusText = 'Processing'; }
+                else if (p.status === 'IMPROPERLY_PROCESSED') { cls = 'failed'; statusText = 'Rejected'; }
+
+                return `<button class="page-box ${cls}" aria-label="Page ${p.page_number}, ${statusText}" onclick="showPageReview('${docId}', ${p.id})">
+                            <span>P.${p.page_number}</span>
+                        </button>`;
+            }).join('')}
+                </div>
+            `;
+        }
+
+        content.innerHTML = `
+            <div class="detail-modal-body">
+                <div>
+                    <div class="detail-section-title">General Information</div>
+                    
+                    <div class="info-group">
+                        <div class="info-label">Filename</div>
+                        <div class="info-value">${doc.name || 'Untitled'}</div>
+                    </div>
+                    
+                    <div class="info-group">
+                        <div class="info-label">Total Pages</div>
+                        <div class="info-value">${doc.total_pages || 0}</div>
+                    </div>
+                    
+                    <div class="info-group">
+                        <div class="info-label">System Status</div>
+                        <div class="info-value">${doc.granular_status || doc.status}</div>
+                    </div>
+                    
+                    <div class="info-group">
+                        <div class="info-label">Created At</div>
+                        <div class="info-value">${new Date(doc.created_at).toLocaleString()}</div>
+                    </div>
+                    
+                    <div class="info-group">
+                        <div class="info-label">Completed At</div>
+                        <div class="info-value">${doc.completed_at ? new Date(doc.completed_at).toLocaleString() : 'In Progress'}</div>
+                    </div>
+                </div>
+                <div>
+                    <div class="detail-section-title">Assignments</div>
+                    <div style="margin-bottom: 2rem;">
+                        ${assignmentsInfo}
+                    </div>
+                    ${pagesHtml}
+                </div>
+            </div>
+        `;
+
+        modal.classList.add('active');
+        trapFocus(modal);
+
+        // Fetch and Render Audit Logs
+        fetchAuditLogs(docId);
+    }
+
+    async function fetchAuditLogs(docId) {
+        const auditList = document.getElementById('audit-log-list');
+        auditList.innerHTML = '<div style="text-align:center; padding: 20px; color:var(--text-muted);">Fetching history...</div>';
+
+        try {
+            const res = await fetch(`/api/v1/audit/logs/?entity_type=Document&entity_id=${docId}`);
+            if (!res.ok) throw new Error("Failed to fetch logs");
+            const data = await res.json();
+            const logs = data.results || data;
+            renderAuditLogs(logs);
+        } catch (err) {
+            console.error(err);
+            auditList.innerHTML = '<div style="text-align:center; padding: 20px; color:var(--accent-red);">Failed to load history.</div>';
+        }
+    }
+
+    function renderAuditLogs(logs) {
+        const auditList = document.getElementById('audit-log-list');
+        if (!logs || logs.length === 0) {
+            auditList.innerHTML = '<div style="text-align:center; padding: 20px; color:var(--text-muted);">No recorded actions for this document.</div>';
+            return;
+        }
+
+        const sortedLogs = logs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+        auditList.innerHTML = sortedLogs.map(log => {
+            const date = new Date(log.timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+            let icon = '📝';
+            let color = 'var(--text-muted)';
+
+            if (log.event_type.includes('UPLOAD')) icon = '📤';
+            else if (log.event_type.includes('ASSIGN')) { icon = '👤'; color = 'var(--accent-amber)'; }
+            else if (log.event_type.includes('COMPLETE')) { icon = '✅'; color = 'var(--accent-green)'; }
+            else if (log.event_type.includes('REJECT') || log.event_type === 'TIMEOUT') { icon = '❌'; color = 'var(--accent-red)'; }
+            else if (log.event_type.includes('MERGE')) icon = '🧩';
+
+            return `
+                <div class="audit-item" style="display:flex; gap:12px; padding: 12px; border-bottom: 1px solid var(--border-color);">
+                    <div style="font-size: 1.2rem; min-width: 24px;">${icon}</div>
+                    <div style="flex:1;">
+                        <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                            <span style="font-weight:700; font-size: 0.85rem; color:${color}; text-transform:uppercase;">${log.event_display || log.event_type}</span>
+                            <span style="font-size:0.7rem; color:var(--text-muted);">${date}</span>
+                        </div>
+                        <div style="font-size:0.85rem; color:#fff; margin-top:2px;">
+                            ${log.performed_by_name || 'System'} performed this action.
+                        </div>
+                        ${log.metadata && Object.keys(log.metadata).length > 0 ? `
+                            <div style="margin-top:6px; font-size:0.75rem; background:rgba(255,255,255,0.03); padding:6px 10px; border-radius:4px; border-left: 2px solid ${color};">
+                                ${Object.entries(log.metadata).map(([k, v]) => `<strong>${k}:</strong> ${v}`).join(' | ')}
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    function showPageReview(docId, pageId) {
+        const doc = allDocuments.find(d => d.id === docId);
+        const page = doc.pages.find(p => p.id === pageId);
+        if (!page) return;
+
+        activePageId = pageId;
+        document.getElementById('page-review-modal-title').innerText = `Review Page ${page.page_number}`;
+        document.getElementById('page-review-status').innerText = page.status;
+        document.getElementById('page-review-complexity').innerText = page.complexity_type || 'Unknown';
+        document.getElementById('page-review-scanned').innerText = page.is_scanned ? 'Yes' : 'No';
+
+        const preview = document.getElementById('page-preview-content');
+        preview.innerHTML = page.text_content || '<p class="text-muted">No content extracted yet.</p>';
+
+        const modal = document.getElementById('page-review-modal');
+        modal.classList.add('active');
+
+        if (allResources.length === 0) fetchResources();
+    }
+
+    async function submitPageReject() {
+        if (!activePageId) return;
+        const reason = prompt("Enter rejection reason:", "Quality issues observed");
+        if (reason === null) return;
+
+        try {
+            const response = await fetch(`/api/v1/documents/pages/${activePageId}/reject/`, {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': '{{ csrf_token }}',
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ reason })
+            });
+
+            if (response.ok) {
+                showToast("Page rejected successfully");
+                closePageReview();
+                fetchDocuments();
+            } else {
+                showToast("Failed to reject page", "error");
+            }
+        } catch (e) {
+            console.error(e);
+            showToast("Network error", "error");
+        }
+    }
+
+    async function submitPageReassign() {
+        const resourceId = document.getElementById('reassign-resource-select').value;
+        if (!activePageId || !resourceId) {
+            showToast("Please select a resource", "warning");
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/v1/documents/pages/${activePageId}/reassign/`, {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': '{{ csrf_token }}',
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ user_id: resourceId })
+            });
+
+            if (response.ok) {
+                showToast("Page reassigned successfully");
+                closePageReview();
+                fetchDocuments();
+            } else {
+                const err = await response.json();
+                showToast("Reassignment failed: " + (err.error || "Unknown error"), "error");
+            }
+        } catch (e) {
+            console.error(e);
+            showToast("Network error", "error");
+        }
+    }
+
+    function closePageReview() {
+        document.getElementById('page-review-modal').classList.remove('active');
+        activePageId = null;
+    }
+
+    function closeDetails() {
+        document.getElementById('doc-details-modal').classList.remove('active');
+    }
+
+    function trapFocus(modal) {
+        const focusableElements = modal.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+        const firstFocusableElement = focusableElements[0];
+        const lastFocusableElement = focusableElements[focusableElements.length - 1];
+
+        modal.addEventListener('keydown', function (e) {
+            if (e.key === 'Tab') {
+                if (e.shiftKey) {
+                    if (document.activeElement === firstFocusableElement) {
+                        lastFocusableElement.focus();
+                        e.preventDefault();
+                    }
+                } else {
+                    if (document.activeElement === lastFocusableElement) {
+                        firstFocusableElement.focus();
+                        e.preventDefault();
+                    }
+                }
+            }
+        });
+        firstFocusableElement.focus();
+    }
+
+    function formatPageRange(sortedPages) {
+        if (!sortedPages || sortedPages.length === 0) return '-';
+        if (sortedPages.length === 1) return `${sortedPages[0]}`;
+        const ranges = [];
+        let start = sortedPages[0];
+        let prev = sortedPages[0];
+        for (let i = 1; i < sortedPages.length; i++) {
+            const curr = sortedPages[i];
+            if (curr === prev + 1) {
+                prev = curr;
+                continue;
+            }
+            ranges.push(start === prev ? `${start}` : `${start}-${prev}`);
+            start = curr;
+            prev = curr;
+        }
+        ranges.push(start === prev ? `${start}` : `${start}-${prev}`);
+        return ranges.join(', ');
+    }
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            closeDetails();
+            closeAssignmentArtifacts();
+        }
+    });
+
+    fetchDocuments();
+    // Auto-refresh every 3 seconds
+    setInterval(() => {
+        // Only refresh if no modals are open to avoid UI flickering/interruption during active tasks
+        const activeModals = document.querySelectorAll('.ac-modal-overlay.active, .modal-overlay.active');
+        if (activeModals.length === 0) {
+            fetchDocuments();
+        }
+    }, 3000);
+</script>
+
+</div>
+</div>
+
+<!-- Page Review Modal -->
+<div id="page-review-modal" class="ac-modal-overlay" role="dialog" aria-hidden="true">
+    <div class="modal-content" style="max-width: 800px; height: 90dvh; margin: auto;">
+        <div class="modal-branding-bar" style="background: var(--accent-amber);"></div>
+        <div class="modal-header">
+            <div class="modal-title-group">
+                <h2 id="page-review-modal-title">Review Page</h2>
+                <p>Verify accuracy or reassign to another resource.</p>
+            </div>
+            <button onclick="closePageReview()" class="modal-close-btn">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 2rem;">
+                <div class="info-group">
+                    <div class="info-label">Current Status</div>
+                    <div class="info-value" id="page-review-status">...</div>
+                </div>
+                <div class="info-group">
+                    <div class="info-label">Complexity</div>
+                    <div class="info-value" id="page-review-complexity">...</div>
+                </div>
+                <div class="info-group">
+                    <div class="info-label">Scanned/Image</div>
+                    <div class="info-value" id="page-review-scanned">...</div>
+                </div>
+            </div>
+
+            <div class="detail-section-title">Content Preview</div>
+            <div id="page-preview-content"
+                style="background: rgba(255,255,255,0.02); padding: 1.5rem; border-radius: 8px; border: 1px solid var(--border-color); max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 0.9rem; margin-bottom: 2rem;">
+                <!-- Preview -->
+            </div>
+
+            <div class="detail-section-title" style="color: var(--accent-amber);">Actions</div>
+            <div style="display: flex; gap: 1rem; align-items: flex-end;">
+                <div style="flex: 1;">
+                    <label class="info-label">Select Resource for Reassignment</label>
+                    <select id="reassign-resource-select" class="ac-select" style="width: 100%;">
+                        <option value="">Loading resources...</option>
+                    </select>
+                </div>
+                <button onclick="submitPageReassign()" class="ac-btn ac-btn-primary"
+                    style="background: var(--accent-amber); border-color: #d97706;">Reassign Page</button>
+            </div>
+
+            <div
+                style="margin-top: 2rem; padding-top: 1.5rem; border-top: 1px dashed var(--border-color); display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <h4 style="margin:0; color:var(--accent-red); font-size:0.9rem;">Mark as Improper</h4>
+                    <p style="margin:2px 0 0; font-size:0.75rem; color:var(--text-muted);">This will flag the page as
+                        needing correction.</p>
+                </div>
+                <button onclick="submitPageReject()" class="ac-btn ac-btn-warning">Reject Page</button>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button onclick="closePageReview()" class="ac-btn ac-btn-secondary">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<!-- Rejection Confirmation Modal -->
+<div id="reject-confirm-modal" class="ac-modal-overlay" role="dialog" aria-hidden="true">
+    <div class="modal-content confirm-card">
+        <div class="modal-branding-bar" style="background: var(--accent-red);"></div>
+        <div class="modal-header" style="border-bottom: none; padding-bottom: 0.5rem;">
+            <div class="modal-title-group">
+                <h2 style="font-size: 1.25rem; color: var(--accent-red);">Confirm Rejection</h2>
+                <p>Industrial Safety Check</p>
+            </div>
+            <button onclick="closeRejectModal()" class="modal-close-btn">&times;</button>
+        </div>
+        <div class="modal-body" style="padding-top: 0.5rem; overflow: hidden;">
+            <div
+                style="background: rgba(229, 62, 62, 0.05); border-left: 3px solid var(--accent-red); padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
+                <p style="color: #eee; font-size: 0.9rem; margin: 0; line-height: 1.5;">
+                    Are you sure you want to <strong>reject</strong> this assignment?
+                    The work will be immediately revoked and reassigned to the next best candidate based on the
+                    assignment engine.
+                </p>
+            </div>
+        </div>
+        <div class="modal-footer"
+            style="background: rgba(0,0,0,0.1); border-top: 1px solid var(--border-color); padding: 1.25rem; display: flex; gap: 12px; justify-content: flex-end;">
+            <button onclick="closeRejectModal()" class="ac-btn ac-btn-secondary"
+                style="border-color: var(--border-color); color: #888;">Cancel Action</button>
+            <button id="execute-rejection-btn" class="ac-btn"
+                style="background: var(--accent-red); color: white; border: none; padding: 10px 20px; font-weight: 700; border-radius: 6px; box-shadow: 0 4px 12px rgba(229, 62, 62, 0.3);">Confirm
+                Rejection</button>
+        </div>
+    </div>
+</div>
+
+<!-- Approval Confirmation Modal -->
+<div id="approve-confirm-modal" class="ac-modal-overlay" role="dialog" aria-hidden="true">
+    <div class="modal-content confirm-card">
+        <div class="modal-branding-bar" style="background: var(--accent-green);"></div>
+        <div class="modal-header" style="border-bottom: none; padding-bottom: 0.5rem;">
+            <div class="modal-title-group">
+                <h2 style="font-size: 1.25rem; color: var(--accent-green);">Confirm Approval</h2>
+                <p>Verification Checklist</p>
+            </div>
+            <button onclick="closeApproveModal()" class="modal-close-btn">&times;</button>
+        </div>
+        <div class="modal-body" style="padding-top: 0.5rem; overflow: hidden;">
+            <div
+                style="background: rgba(16, 185, 129, 0.05); border-left: 3px solid var(--accent-green); padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
+                <p style="color: #eee; font-size: 0.9rem; margin: 0; line-height: 1.5;">
+                    Are you sure you want to <strong>approve</strong> this assignment block?
+                    All submitted pages will be marked as approved and the document status will be updated accordingly.
+                </p>
+            </div>
+        </div>
+        <div class="modal-footer"
+            style="background: rgba(0,0,0,0.1); border-top: 1px solid var(--border-color); padding: 1.25rem; display: flex; gap: 12px; justify-content: flex-end;">
+            <button onclick="closeApproveModal()" class="ac-btn ac-btn-secondary"
+                style="border-color: var(--border-color); color: #888;">Cancel</button>
+            <button id="execute-approval-btn" class="ac-btn"
+                style="background: var(--accent-green); color: white; border: none; padding: 10px 20px; font-weight: 700; border-radius: 6px; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);">Confirm
+                Approval</button>
+        </div>
+    </div>
+</div>
+
+<!-- Document Detail Modal -->
+<div id="doc-details-modal" class="ac-modal-overlay" role="dialog" aria-hidden="true">
+    <div class="modal-content" style="max-width: 900px; height: 90dvh;">
+        <div class="modal-branding-bar"></div>
+        <div class="modal-header">
+            <div class="modal-title-group">
+                <h2 id="modal-doc-title">Document Intelligence</h2>
+                <p>Full audit trail and assignment status</p>
+            </div>
+            <button onclick="closeDetails()" class="modal-close-btn">&times;</button>
+        </div>
+        <div class="modal-body" id="modal-doc-content-wrapper"
+            style="display: grid; grid-template-columns: 1fr 400px; gap: 0; padding: 0; overflow: hidden; height: 100%;">
+            <!-- Main Content (General Info & Pages) -->
+            <div id="modal-doc-content" class="no-scrollbar" style="padding: 2rem; overflow-y: auto;">
+                <!-- Dynamic Content -->
+            </div>
+            <!-- Audit Sidebar -->
+            <div
+                style="background: rgba(255,255,255,0.01); display: flex; flex-direction: column; overflow: hidden; border-left: 1px solid var(--border-color);">
+                <div
+                    style="padding: 1.5rem; border-bottom: 1px solid var(--border-color); background: rgba(0,0,0,0.2);">
+                    <h4
+                        style="margin:0; font-size:0.85rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--accent-red); font-weight:800;">
+                        Activity Stream</h4>
+                    <p style="margin:2px 0 0; font-size:0.7rem; color:var(--text-muted);">Real-time event tracking for
+                        this entity.</p>
+                </div>
+                <div id="audit-log-list" class="no-scrollbar" style="flex: 1; overflow-y: auto;">
+                    <!-- Audit Logs -->
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button onclick="closeDetails()" class="ac-btn ac-btn-secondary">Close Trace</button>
+        </div>
+    </div>
+</div>
+
+<!-- Assignment Artifacts Modal -->
+<div id="assignment-artifacts-modal" class="ac-modal-overlay" role="dialog" aria-hidden="true">
+    <div class="modal-content" style="max-width: 980px; height: 86dvh;">
+        <div class="modal-branding-bar" style="background: var(--accent-amber);"></div>
+        <div class="modal-header">
+            <div class="modal-title-group">
+                <h2 id="assignment-artifacts-title">Assignment Upload Details</h2>
+                <p>Uploaded files and edits submitted by the assigned user.</p>
+            </div>
+            <button onclick="closeAssignmentArtifacts()" class="modal-close-btn">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div id="assignment-artifacts-body"></div>
+        </div>
+        <div class="modal-footer">
+            <button onclick="closeAssignmentArtifacts()" class="ac-btn ac-btn-secondary">Close</button>
+        </div>
+    </div>
+</div>
+{% endblock %}

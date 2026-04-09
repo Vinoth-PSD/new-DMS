@@ -1,0 +1,45 @@
+{% extends 'base.html' %}
+
+{% block title %}Create Admin - DocPro Admin{% endblock %}
+
+{% block content %}
+<div class="ac-theme-red-black"
+    style="max-width: 600px; margin: 0 auto; padding: 2rem; border-radius: var(--ac-radius);">
+    <div style="margin-bottom: 2rem;">
+        <h1 style="margin: 0; font-size: 1.75rem;">Create New Administrator</h1>
+        <p class="text-muted">Register a new system administrator with full access privileges.</p>
+    </div>
+
+    <div class="card ac-theme-red-black" style="border: none;">
+        <div class="card-body" style="padding: 0;">
+            <form method="post" id="create-admin-form" novalidate>
+                {% csrf_token %}
+
+                {% for field in form %}
+                <div class="form-group" style="margin-bottom: 1.5rem;">
+                    <label class="form-label">{{ field.label }}</label>
+                    {{ field }}
+                    {% if field.errors %}
+                    <div class="invalid-feedback" style="display: block;">
+                        {% for error in field.errors %}
+                        {{ error }}
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                    {% if field.help_text %}
+                    <small class="form-text text-muted">{{ field.help_text }}</small>
+                    {% endif %}
+                </div>
+                {% endfor %}
+
+                <div style="margin-top: 2.5rem;">
+                    <button type="submit" class="btn btn-primary" style="width: 100%; padding: 0.75rem;">Create Admin
+                        Account</button>
+                    <a href="{% url 'admin_panel:dashboard' %}" class="btn btn-secondary"
+                        style="width: 100%; padding: 0.75rem; margin-top: 0.5rem; text-align: center; display: block; text-decoration: none;">Cancel</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,269 @@
+{% extends 'base.html' %}
+
+{% block title %}Create Resource - DocPro Admin{% endblock %}
+
+{% block content %}
+<div class="ac-theme-red-black"
+    style="max-width: 600px; margin: 0 auto; padding: 2rem; border-radius: var(--ac-radius);">
+    <div style="margin-bottom: 2rem;">
+        <h1 style="margin: 0; font-size: 1.75rem;">Create New Resource</h1>
+        <p class="text-muted">Register a new authorized resource user for document processing.</p>
+    </div>
+
+    <div class="card ac-theme-red-black" style="border: none;">
+        <div class="card-body" style="padding: 0;">
+            <form id="create-resource-form" novalidate>
+                {% csrf_token %}
+                <div class="form-group" style="margin-bottom: 1.5rem;">
+                    <label class="form-label">Username</label>
+                    <input type="text" name="username" class="form-control" placeholder="Enter username" required
+                        maxlength="150" autocomplete="off">
+                    <div class="invalid-feedback" id="error-username"></div>
+                </div>
+
+                <div class="form-group" style="margin-bottom: 1.5rem;">
+                    <label class="form-label">Email Address</label>
+                    <input type="email" name="email" class="form-control" placeholder="name@example.com" required
+                        autocomplete="off">
+                    <div class="invalid-feedback" id="error-email"></div>
+                </div>
+
+                <div class="form-group" style="margin-bottom: 1.5rem;">
+                    <label class="form-label">Create Password</label>
+                    <input type="password" name="password" class="form-control" placeholder="Minimum 8 characters"
+                        required autocomplete="new-password">
+                    <div class="invalid-feedback" id="error-password"></div>
+                </div>
+
+                <div class="form-group" style="margin-bottom: 1.5rem;">
+                    <label class="form-label">Confirm Password</label>
+                    <input type="password" name="password_confirm" class="form-control" placeholder="Re-enter password"
+                        required autocomplete="new-password">
+                    <div class="invalid-feedback" id="error-password_confirm"></div>
+                </div>
+
+                <div class="form-group" style="margin-bottom: 1.5rem;">
+                    <label class="form-label">Work Capacity</label>
+                    <input type="number" name="default_page_capacity" class="form-control" placeholder="Enter capacity (e.g. 10)"
+                        min="1" required>
+                    <div class="invalid-feedback" id="error-default_page_capacity"></div>
+                    <small class="form-text text-muted">Maximum pages to assign per processing cycle.</small>
+                </div>
+
+                <input type="hidden" name="role" value="RESOURCE">
+
+                <div style="margin-top: 2.5rem;">
+                    <button type="submit" class="btn btn-primary" style="width: 100%; padding: 0.75rem;">Create Resource
+                        Account</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+    const form = document.getElementById('create-resource-form');
+
+    function clearErrors() {
+        form.querySelectorAll('.is-invalid').forEach(el => el.classList.remove('is-invalid'));
+        form.querySelectorAll('.invalid-feedback').forEach(el => el.innerText = '');
+    }
+
+    function showError(fieldName, message) {
+        const input = form.querySelector(`[name="${fieldName}"]`);
+        const feedback = form.querySelector(`#error-${fieldName}`);
+        if (input) input.classList.add('is-invalid');
+        if (feedback) feedback.innerText = message;
+    }
+
+    function removeError(fieldName) {
+        const input = form.querySelector(`[name="${fieldName}"]`);
+        const feedback = form.querySelector(`#error-${fieldName}`);
+        if (input) input.classList.remove('is-invalid');
+        if (feedback) feedback.innerText = '';
+    }
+
+    // Live Validation Listeners
+    form.querySelector('[name="username"]').addEventListener('input', (e) => {
+        const val = e.target.value;
+        if (val.length > 0 && val.length < 4) {
+            showError('username', 'Username must be at least 4 characters.');
+        } else if (val.length >= 4) {
+            const regex = /^[a-zA-Z0-9_]+$/; // Corrected regex for username
+            if (!regex.test(val)) {
+                showError('username', 'Only letters, numbers, and underscores allowed.');
+            } else {
+                removeError('username');
+            }
+        } else {
+            removeError('username');
+        }
+    });
+
+    form.querySelector('[name="email"]').addEventListener('input', (e) => {
+        const val = e.target.value;
+        const regex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (val.length > 0 && !regex.test(val)) {
+            showError('email', 'Please enter a valid email address.');
+        } else {
+            removeError('email');
+        }
+    });
+
+    form.querySelector('[name="password"]').addEventListener('input', (e) => {
+        const val = e.target.value;
+        const confirmVal = form.querySelector('[name="password_confirm"]').value;
+        
+        if (val.length > 0 && val.length < 8) {
+            showError('password', 'Password must be at least 8 characters.');
+        } else {
+            removeError('password');
+        }
+
+        if (confirmVal && val !== confirmVal) {
+            showError('password_confirm', 'Passwords do not match.');
+        } else if (confirmVal && val === confirmVal) {
+            removeError('password_confirm');
+        }
+    });
+
+    form.querySelector('[name="password_confirm"]').addEventListener('input', (e) => {
+        const val = e.target.value;
+        const passVal = form.querySelector('[name="password"]').value;
+        if (val !== passVal) {
+            showError('password_confirm', 'Passwords do not match.');
+        } else {
+            removeError('password_confirm');
+        }
+    });
+
+    form.querySelector('[name="default_page_capacity"]').addEventListener('input', (e) => {
+        const val = parseInt(e.target.value);
+        if (val < 1) {
+            showError('default_page_capacity', 'Capacity must be at least 1.');
+        } else {
+            removeError('default_page_capacity');
+        }
+    });
+
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        clearErrors();
+
+        const btn = e.target.querySelector('button');
+        const formData = new FormData(e.target);
+        const raw = Object.fromEntries(formData.entries());
+
+        // Final Client-side validation check
+        let hasError = false;
+
+        // Required checks
+        if (!raw.username) { showError('username', 'Username is required.'); hasError = true; }
+        if (!raw.email) { showError('email', 'Email is required.'); hasError = true; }
+        if (!raw.password) { showError('password', 'Password is required.'); hasError = true; }
+        if (!raw.password_confirm) { showError('password_confirm', 'Confirmation is required.'); hasError = true; }
+        if (!raw.default_page_capacity) { showError('default_page_capacity', 'Page capacity is required.'); hasError = true; }
+
+        if (hasError) {
+            // No toast for validation errors, just inline
+            return;
+        }
+
+        // Username check
+        if (raw.username.length < 4) {
+            showError('username', 'Username is too short.');
+            hasError = true;
+        } else if (!/^[a-zA-Z0-9_]+$/.test(raw.username)) {
+            showError('username', 'Invalid username format.');
+            hasError = true;
+        }
+
+        // Email check
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw.email)) {
+            showError('email', 'Invalid email address.');
+            hasError = true;
+        }
+
+        // Password check
+        if (raw.password.length < 8) {
+            showError('password', 'Password too short.');
+            hasError = true;
+        }
+
+        if (raw.password !== raw.password_confirm) {
+            showError('password_confirm', 'Passwords do not match.');
+            hasError = true;
+        }
+
+        const capacity = parseInt(raw.default_page_capacity || "0", 10);
+        if (!Number.isInteger(capacity) || capacity < 1) {
+            showError('default_page_capacity', 'Capacity must be at least 1.');
+            hasError = true;
+        }
+
+        if (hasError) {
+            // No toast for validation errors, just inline
+            return;
+        }
+
+        const data = {
+            username: raw.username,
+            email: raw.email,
+            password: raw.password,
+            max_page_capacity: capacity,
+        };
+
+        btn.disabled = true;
+        const originalBtnText = btn.innerText;
+        btn.innerText = 'Creating...';
+
+        try {
+            const response = await fetch('/api/admin/resources/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                },
+                body: JSON.stringify(data)
+            });
+
+            if (response.ok) {
+                // SUCCESS: 200-299
+                localStorage.setItem('docpro_toast_message', 'Resource account created successfully!');
+                localStorage.setItem('docpro_toast_type', 'success');
+                e.target.reset();
+                window.location.href = "{% url 'admin_panel:resource_list' %}";
+            } else {
+                // ERROR: 400 or other
+                const err = await response.json();
+
+                if (response.status === 400) {
+                    // DRF usually returns a flat dict of errors or { "detail": "..." }
+                    // If it's a dict with arrays or strings as values, it's likely field errors
+                    let handledInline = false;
+                    Object.keys(err).forEach(field => {
+                        const messages = err[field];
+                        // If field exists in form, show inline
+                        if (form.querySelector(`[name="${field}"]`)) {
+                            showError(field, Array.isArray(messages) ? messages[0] : messages);
+                            handledInline = true;
+                        }
+                    });
+
+                    if (!handledInline) {
+                        showToast(err.detail || err.non_field_errors?.[0] || 'Validation failed. Please check inputs.', 'error');
+                    }
+                } else {
+                    // Show generic toast for other errors (500, etc)
+                    showToast(err.detail || 'Failed to create resource. Please check inputs.', 'error');
+                }
+            }
+        } catch (error) {
+            showToast('Connection error.', 'error');
+        } finally {
+            btn.disabled = false;
+            btn.innerText = originalBtnText;
+        }
+    });
+</script>
+{% endblock %}

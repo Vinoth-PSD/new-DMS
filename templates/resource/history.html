@@ -1,0 +1,244 @@
+{% extends 'base.html' %}
+
+{% block title %}Past Work Update - DocPro Resource{% endblock %}
+
+{% block content %}
+<div class="container layout-dashboard" style="max-width: 1200px;">
+    <div style="margin-bottom: 2rem;">
+        <h1 style="font-size: 2.5rem; font-weight: 900; text-transform: uppercase; letter-spacing: -0.05em; margin: 0;">
+            Past Work Update</h1>
+        <p class="text-muted">Review completed uploads and status updates for your processed assignments.</p>
+    </div>
+
+    <div class="card ac-theme-red-black">
+        <div class="card-header">
+            <h3>Completed Assignment Updates</h3>
+        </div>
+        <div style="padding: 1rem 1.25rem; border-bottom: 1px solid #2a2a2a; display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+            <input id="history-search" type="text" placeholder="Search file..." class="form-control" style="max-width: 260px;">
+            <select id="history-status" class="form-select" style="max-width: 200px;">
+                <option value="ALL">All statuses</option>
+                <option value="COMPLETED">Completed</option>
+            </select>
+            <input id="history-date" type="date" class="form-control" style="max-width: 180px;">
+            <button class="btn btn-sm btn-outline-secondary" onclick="applyFilters()">Filter</button>
+            <button class="btn btn-sm btn-outline-secondary" onclick="resetFilters()">Reset</button>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0" id="history-table">
+                    <thead class="table-light">
+                        <tr>
+                            <th>File Name</th>
+                            <th>Page Range</th>
+                            <th>Completed On</th>
+                        </tr>
+                    </thead>
+                    <tbody id="history-container">
+                        <tr><td colspan="3" class="text-center p-4">Loading history...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div id="pagination-controls" style="display: none; justify-content: space-between; align-items: center; padding: 1rem; background: #f8f9fa; border-top: 1px solid #dee2e6;">
+                <div id="page-info" class="text-muted small"></div>
+                <div class="btn-group">
+                    <button id="prev-btn" class="btn btn-sm btn-outline-secondary" onclick="changePage('prev')">Previous</button>
+                    <button id="next-btn" class="btn btn-sm btn-outline-secondary" onclick="changePage('next')">Next</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    #history-table tbody tr {
+        cursor: pointer;
+        transition: background-color 0.2s;
+    }
+
+    #history-table tbody tr:hover {
+        background-color: rgba(220, 38, 38, 0.05) !important;
+    }
+
+    /* Modal Styles */
+    .detail-modal-body {
+        display: grid;
+        grid-template-columns: 1fr 2fr;
+        gap: 2rem;
+    }
+
+    .page-box.completed { border-color: #10b981; color: #10b981; background: rgba(16, 185, 129, 0.05); }
+    .page-box.failed { border-color: #ef4444; color: #ef4444; background: rgba(239, 68, 68, 0.05); }
+    .page-box.processing { border-color: #3b82f6; color: #3b82f6; background: rgba(59, 130, 246, 0.05); }
+
+    .modal-overlay.active {
+        display: flex !important;
+    }
+
+    /* Enhanced Modal Text */
+    .detail-modal-body .info-label {
+        font-weight: 700;
+        color: #acacac;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        font-size: 0.7rem;
+    }
+    
+    .detail-modal-body .info-value {
+        color: #ffffff;
+        font-size: 1.1rem;
+    }
+
+    .detail-modal-body .detail-section-title {
+        color: #dc2626;
+        border-bottom-color: #dc2626;
+        opacity: 0.8;
+    }
+</style>
+
+<div id="assignment-details-modal" class="modal-overlay">
+    <div class="modal-content" style="max-width: 900px; padding: 0; background: #0a0a0a; border: 1px solid #333; overflow: hidden; border-radius: 16px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); color: #fff;">
+        <!-- Modal Top Branding Bar -->
+        <div style="height: 4px; background: #dc2626; width: 100%;"></div>
+        
+        <div style="padding: 2.5rem;">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 2.5rem;">
+                <div>
+                    <h2 style="margin: 0; font-size: 1.75rem; text-transform: uppercase; font-weight: 950; letter-spacing: -0.03em; color: #fff;">
+                        Assignment <span style="color:#dc2626">Audit</span> Details
+                    </h2>
+                    <p class="text-muted" style="margin: 6px 0 0 0; font-size: 0.9rem; font-weight: 500;">Full tracking for your processed pages.</p>
+                </div>
+                <button onclick="closeDetails()" class="ac-btn-sort" style="background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255,255,255,0.1); padding: 10px; border-radius: 50%; color: #fff; transition: all 0.2s;">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+            
+            <div id="modal-assignment-content">
+                <!-- Dynamic Content -->
+            </div>
+            
+            <div style="margin-top: 3.5rem; display: flex; justify-content: flex-end; gap: 1rem; border-top: 1px solid #222; padding-top: 2rem;">
+                <button onclick="closeDetails()" class="btn btn-outline-secondary" style="border-color: #333; color: #999; padding: 0.75rem 1.5rem;">Dismiss</button>
+                <button onclick="closeDetails()" class="btn btn-primary" style="background: #dc2626; border-color: #dc2626; padding: 0.75rem 2rem; box-shadow: 0 4px 12px rgba(220, 38, 38, 0.2);">Close View</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const historyContainer = document.getElementById('history-container');
+    let nextUrl = null;
+    let prevUrl = null;
+
+    function formatPageLabel(sortedPages) {
+        if (!sortedPages || sortedPages.length === 0) return 'Pages -';
+        if (sortedPages.length === 1) return `Page ${sortedPages[0]}`;
+        const ranges = [];
+        let start = sortedPages[0];
+        let prev = sortedPages[0];
+        for (let i = 1; i < sortedPages.length; i++) {
+            const curr = sortedPages[i];
+            if (curr === prev + 1) {
+                prev = curr;
+                continue;
+            }
+            ranges.push(start === prev ? `${start}` : `${start}-${prev}`);
+            start = curr;
+            prev = curr;
+        }
+        ranges.push(start === prev ? `${start}` : `${start}-${prev}`);
+        return `Pages ${ranges.join(', ')}`;
+    }
+
+    function buildFilterUrl(base = '/api/resource/work/history-bundles/') {
+        const params = new URLSearchParams();
+        const search = (document.getElementById('history-search').value || '').trim();
+        const status = (document.getElementById('history-status').value || 'ALL').trim();
+        const date = (document.getElementById('history-date').value || '').trim();
+        if (search) params.set('search', search);
+        if (status && status !== 'ALL') params.set('status', status);
+        if (date) params.set('date', date);
+        const qs = params.toString();
+        return qs ? `${base}?${qs}` : base;
+    }
+
+    async function loadHistory(url = null) {
+        try {
+            const target = url || buildFilterUrl();
+            const response = await fetch(target);
+            if (!response.ok) throw new Error('Failed to load history');
+            const data = await response.json();
+            const rows = data.results || [];
+            nextUrl = data.next || null;
+            prevUrl = data.previous || null;
+            document.getElementById('prev-btn').disabled = !prevUrl;
+            document.getElementById('next-btn').disabled = !nextUrl;
+            document.getElementById('pagination-controls').style.display = 'flex';
+            document.getElementById('page-info').textContent = `Total Completed Jobs: ${data.count || 0}`;
+            renderHistory(rows);
+        } catch (error) {
+            console.error('Error loading history:', error);
+            historyContainer.innerHTML = `
+                <tr><td colspan="3" class="text-center p-4 text-danger">
+                    Failed to load history. Please refresh the page.
+                </td></tr>`;
+        }
+    }
+
+    function renderHistory(rows) {
+        if (!rows || rows.length === 0) {
+            historyContainer.innerHTML = `
+                <tr><td colspan="3" class="text-center p-5 text-muted">
+                    No completed jobs found for this filter.
+                </td></tr>`;
+            return;
+        }
+
+        historyContainer.innerHTML = rows.map((row) => {
+            const title = row.document_title || `Document ${row.document_id}`;
+            const sorted = (row.page_numbers || []).slice().sort((a, b) => a - b);
+            const pageLabel = formatPageLabel(sorted);
+            const countLabel = `${row.pages_completed || sorted.length} pages`;
+            const submittedDate = row.last_completed_at ? new Date(row.last_completed_at).toLocaleString() : '-';
+            return `
+                <tr>
+                    <td>
+                        <div style="font-weight: 700; color:#1e293b;">${title}</div>
+                        <div style="font-size: 11px; color: #64748b;">Document #${row.document_id}</div>
+                    </td>
+                    <td>
+                        <span class="badge bg-light text-dark border">${pageLabel}</span>
+                        <small class="text-muted ms-1">(${countLabel})</small>
+                    </td>
+                    <td class="text-muted" style="font-size: 0.875rem;">${submittedDate}</td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    function applyFilters() {
+        loadHistory(buildFilterUrl());
+    }
+
+    function resetFilters() {
+        document.getElementById('history-search').value = '';
+        document.getElementById('history-status').value = 'ALL';
+        document.getElementById('history-date').value = '';
+        loadHistory('/api/resource/work/history-bundles/');
+    }
+
+    function changePage(direction) {
+        if (direction === 'next' && nextUrl) {
+            loadHistory(nextUrl);
+        } else if (direction === 'prev' && prevUrl) {
+            loadHistory(prevUrl);
+        }
+    }
+
+    loadHistory('/api/resource/work/history-bundles/');
+</script>
+{% endblock %}

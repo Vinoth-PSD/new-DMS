@@ -1,0 +1,125 @@
+{% extends 'base.html' %}
+
+{% block title %}Profile - DocPro Resource{% endblock %}
+
+{% block content %}
+<div class="ac-theme-red-black" style="max-width: 600px; margin: 0 auto; padding: 2rem; border-radius: var(--ac-radius);">
+    <div style="margin-bottom: 2rem;">
+        <h1 style="margin: 0; font-size: 1.75rem;">My Profile</h1>
+        <p class="text-muted">Manage your account settings and password.</p>
+    </div>
+
+    <div class="card ac-theme-red-black" style="border: none; margin-bottom: 2rem;">
+        <div class="card-body" style="padding: 1.5rem; background: #1a1a1a; border: 1px solid #333; border-radius: 8px;">
+            <div style="margin-bottom: 1.5rem;">
+                <label class="text-muted" style="font-size: 0.75rem; text-transform: uppercase; font-weight: 700;">Username</label>
+                <div style="font-size: 1.1rem; font-weight: 500;">{{ request.user.username }}</div>
+            </div>
+            <div style="margin-bottom: 0;">
+                <label class="text-muted" style="font-size: 0.75rem; text-transform: uppercase; font-weight: 700;">Email Address</label>
+                <div style="font-size: 1.1rem; font-weight: 500;">{{ request.user.email }}</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card ac-theme-red-black" style="border: none;">
+        <div class="card-header" style="background: transparent; border-bottom: 1px solid #333; padding: 0 0 1rem 0; margin-bottom: 1.5rem;">
+            <h3 style="margin: 0; font-size: 1.25rem;">Change Password</h3>
+        </div>
+        <div class="card-body" style="padding: 0;">
+            <form id="change-password-form" novalidate>
+                <div class="form-group" style="margin-bottom: 1.5rem;">
+                    <label class="form-label">Current Password</label>
+                    <input type="password" name="old_password" class="form-control" required autocomplete="current-password">
+                    <div class="invalid-feedback" id="error-old_password"></div>
+                </div>
+
+                <div class="form-group" style="margin-bottom: 1.5rem;">
+                    <label class="form-label">New Password</label>
+                    <input type="password" name="new_password" class="form-control" placeholder="Minimum 8 characters" required autocomplete="new-password">
+                    <div class="invalid-feedback" id="error-new_password"></div>
+                </div>
+
+                <div class="form-group" style="margin-bottom: 1.5rem;">
+                    <label class="form-label">Confirm New Password</label>
+                    <input type="password" name="confirm_password" class="form-control" required autocomplete="new-password">
+                    <div class="invalid-feedback" id="error-confirm_password"></div>
+                </div>
+
+                <div style="margin-top: 2.5rem;">
+                    <button type="submit" class="btn btn-primary" style="width: 100%; padding: 0.75rem;">Update Password</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+    const form = document.getElementById('change-password-form');
+
+    function clearErrors() {
+        form.querySelectorAll('.is-invalid').forEach(el => el.classList.remove('is-invalid'));
+        form.querySelectorAll('.invalid-feedback').forEach(el => el.innerText = '');
+    }
+
+    function showError(fieldName, message) {
+        const input = form.querySelector(`[name="${fieldName}"]`);
+        const feedback = form.querySelector(`#error-${fieldName}`);
+        if (input) input.classList.add('is-invalid');
+        if (feedback) feedback.innerText = message;
+    }
+
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        clearErrors();
+
+        const btn = e.target.querySelector('button');
+        const formData = new FormData(e.target);
+        const data = Object.fromEntries(formData.entries());
+
+        if (data.new_password !== data.confirm_password) {
+            showError('confirm_password', 'New passwords do not match.');
+            return;
+        }
+
+        if (data.new_password.length < 8) {
+            showError('new_password', 'Password must be at least 8 characters.');
+            return;
+        }
+
+        btn.disabled = true;
+        const originalBtnText = btn.innerText;
+        btn.innerText = 'Updating...';
+
+        try {
+            const response = await fetch('/api/v1/auth/users/change_password/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': '{{ csrf_token }}'
+                },
+                body: JSON.stringify(data)
+            });
+
+            if (response.ok) {
+                showToast('Password updated successfully!', 'success');
+                form.reset();
+            } else {
+                const err = await response.json();
+                if (response.status === 400) {
+                    Object.keys(err).forEach(field => {
+                        showError(field, Array.isArray(err[field]) ? err[field][0] : err[field]);
+                    });
+                } else {
+                    showToast('Failed to update password.', 'error');
+                }
+            }
+        } catch (error) {
+            showToast('Connection error.', 'error');
+        } finally {
+            btn.disabled = false;
+            btn.innerText = originalBtnText;
+        }
+    });
+</script>
+{% endblock %}
