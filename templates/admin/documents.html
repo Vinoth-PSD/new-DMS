@@ -1148,7 +1148,7 @@
                     return;
                 }
             }
-            window.open(doc.final_merged_file, "_blank");
+            window.open(`/api/admin/documents/${id}/download-final/`, "_blank");
         } catch (err) {
             console.error(err);
         }
@@ -1162,14 +1162,9 @@
             });
             if (response.ok) {
                 showToast("Merge completed successfully.", "success");
-                const payload = await response.json().catch(() => ({}));
+                await response.json().catch(() => ({}));
                 await fetchDocuments();
-                if (payload && payload.merged_file) {
-                    window.open(payload.merged_file, "_blank");
-                } else {
-                    const fresh = allDocuments.find((d) => String(d.id) === String(id));
-                    if (fresh && fresh.final_merged_file) window.open(fresh.final_merged_file, "_blank");
-                }
+                window.open(`/api/admin/documents/${id}/download-final/`, "_blank");
             } else {
                 const err = await response.json().catch(() => ({}));
                 showToast(err.reason || err.detail || "Merge failed.", "error");

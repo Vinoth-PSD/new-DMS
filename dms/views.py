@@ -1,4 +1,5 @@
 import io
+import mimetypes
 import zipfile
 import re
 import hashlib
@@ -7,7 +8,7 @@ from django.db.models import Count, Q
 from django.utils import timezone
 from django.contrib.auth.models import User
 from django.shortcuts import get_object_or_404
-from django.http import HttpResponse
+from django.http import FileResponse, HttpResponse
 from django.db import transaction
 from django.core.files.base import ContentFile
 from rest_framework import mixins, status, viewsets
@@ -27,6 +28,8 @@ from .serializers import (
 )
 from .services import mark_download_started, update_document_status
 from .tasks import assign_pages_task, merge_document_task, split_document_task
+
+
 
 
 class AdminDashboardViewSet(viewsets.ViewSet):
@@ -88,6 +91,30 @@ class DocumentViewSet(viewsets.ModelViewSet):
     def merge(self, request, pk=None):
         result = merge_document_task(document_id=int(pk))
         return Response(result, status=status.HTTP_200_OK if result.get("merged") else status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=["get"], url_path="download-final")
+    def download_final(self, request, pk=None):
+        """Stream merged output (PDF, DOCX, ZIP, etc.) with Content-Type from the stored filename."""
+        document = self.get_object()
+        field = document.final_merged_file
+        if not field or not field.name:
+            return Response(
+                {"detail": "No merged file for this document."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        basename = field.name.rsplit("/", 1)[-1]
+        content_type, encoding = mimetypes.guess_type(basename)
+        content_type = content_type or "application/octet-stream"
+        file_handle = field.open("rb")
+        response = FileResponse(
+            file_handle,
+            content_type=content_type,
+            as_attachment=True,
+            filename=basename,
+        )
+        if encoding:
+            response["Content-Encoding"] = encoding
+        return response
 
     @action(detail=True, methods=["get"], url_path="resource-processed-bundle")
     def resource_processed_bundle(self, request, pk=None):
