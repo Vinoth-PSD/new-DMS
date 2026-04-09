@@ -6,6 +6,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "replace-in-production")
 DEBUG = os.getenv("DJANGO_DEBUG", "1") == "1"
 ALLOWED_HOSTS = os.getenv("DJANGO_ALLOWED_HOSTS", "*").split(",")
+# Set DJANGO_SERVE_MEDIA=1 when using runserver/Gunicorn without Nginx serving /media/
+SERVE_MEDIA = os.getenv("DJANGO_SERVE_MEDIA", "0") == "1"
 
 INSTALLED_APPS = [
     "django.contrib.admin",
