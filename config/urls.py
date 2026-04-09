@@ -18,7 +18,7 @@ urlpatterns = [
     path("api/", include("dms.urls")),
 ]
 
-#if settings.DEBUG or getattr(settings, "SERVE_MEDIA", False):
-    #urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+if settings.DEBUG or getattr(settings, "SERVE_MEDIA", False):
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 
-urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+#urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
