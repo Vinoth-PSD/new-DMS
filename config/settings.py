@@ -7,7 +7,7 @@ SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "replace-in-production")
 DEBUG = os.getenv("DJANGO_DEBUG", "1") == "1"
 ALLOWED_HOSTS = os.getenv("DJANGO_ALLOWED_HOSTS", "*").split(",")
 # Set DJANGO_SERVE_MEDIA=1 when using runserver/Gunicorn without Nginx serving /media/
-SERVE_MEDIA = os.getenv("DJANGO_SERVE_MEDIA", "0") == "1"
+SERVE_MEDIA = os.getenv("DJANGO_SERVE_MEDIA", "1") == "1"
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -76,7 +76,10 @@ USE_TZ = True
 STATIC_URL = "/static/"
 STATICFILES_DIRS = [BASE_DIR / "static"]
 MEDIA_URL = "/media/"
-MEDIA_ROOT = BASE_DIR / "media"
+MEDIA_ROOT = "/opt/dms/app/media"
+
+print("BASE_DIR:", BASE_DIR)
+print("MEDIA_ROOT:", MEDIA_ROOT)
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 LOGIN_URL = "/login/"
