@@ -76,7 +76,7 @@ USE_TZ = True
 STATIC_URL = "/static/"
 STATICFILES_DIRS = [BASE_DIR / "static"]
 MEDIA_URL = "/media/"
-MEDIA_ROOT = "/opt/dms/app/media"
+MEDIA_ROOT = BASE_DIR / "media"
 
 print("BASE_DIR:", BASE_DIR)
 print("MEDIA_ROOT:", MEDIA_ROOT)
