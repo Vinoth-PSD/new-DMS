@@ -8,6 +8,20 @@ from .models import AuditLog, Document, DocumentPage
 from .services import assign_unassigned_pages, split_document_pages
 
 
+def _merge_docx_byte_segments(parts: list[bytes]) -> bytes:
+    """Append multiple .docx files into one document (in order)."""
+    from docx import Document
+    from docxcompose.composer import Composer
+
+    master = Document(io.BytesIO(parts[0]))
+    composer = Composer(master)
+    for payload in parts[1:]:
+        composer.append(Document(io.BytesIO(payload)))
+    out = io.BytesIO()
+    composer.save(out)
+    return out.getvalue()
+
+
 @shared_task
 def split_document_task(document_id: int) -> dict:
     document = Document.objects.get(id=document_id)
@@ -40,6 +54,7 @@ def merge_document_task(document_id: int) -> dict:
 
     writer = PdfWriter()
     all_pdf = all((page.processed_file.name or "").lower().endswith(".pdf") for page in pages)
+    merge_segments = 1
     if all_pdf:
         for page in pages:
             with page.processed_file.open("rb") as stream:
@@ -51,36 +66,68 @@ def merge_document_task(document_id: int) -> dict:
         merged_name = f"merged_{document.id}_{timezone.now().strftime('%Y%m%d%H%M%S')}.pdf"
         document.final_merged_file.save(merged_name, ContentFile(output.getvalue()), save=False)
     else:
-        # For non-PDF workflows, always emit ONE merged artifact (never per-page zip).
-        # We pick a canonical bundled payload:
-        # 1) most frequent content hash across pages
-        # 2) tie-break by earliest page number.
-        payloads_by_hash: dict[str, dict] = {}
+        # Non-PDF: each resource's Word upload is duplicated onto every page they own, so
+        # pages 1–15 share one hash and 16–24 another. We must not pick the "most common"
+        # hash (that drops whole resources). Group consecutive identical payloads in page order.
+        segments: list[dict] = []
         for page in pages:
             with page.processed_file.open("rb") as stream:
                 payload = stream.read()
             digest = hashlib.sha256(payload).hexdigest()
             ext = (page.processed_file.name.rsplit(".", 1)[-1] or "bin").lower()
-            bucket = payloads_by_hash.get(digest)
-            if not bucket:
-                payloads_by_hash[digest] = {
-                    "count": 1,
-                    "payload": payload,
-                    "ext": ext,
-                    "first_page": page.page_number,
+            if not segments or digest != segments[-1]["digest"]:
+                segments.append(
+                    {
+                        "digest": digest,
+                        "payload": payload,
+                        "ext": ext,
+                        "page_start": page.page_number,
+                        "page_end": page.page_number,
+                    }
+                )
+            else:
+                segments[-1]["page_end"] = page.page_number
+
+        ts = timezone.now().strftime("%Y%m%d%H%M%S")
+        if len(segments) == 1:
+            seg = segments[0]
+            merged_name = f"merged_{document.id}_{ts}.{seg['ext']}"
+            document.final_merged_file.save(merged_name, ContentFile(seg["payload"]), save=False)
+        else:
+            exts = {s["ext"] for s in segments}
+            if exts == {"docx"}:
+                merged_bytes = _merge_docx_byte_segments([s["payload"] for s in segments])
+                merged_name = f"merged_{document.id}_{ts}.docx"
+                document.final_merged_file.save(merged_name, ContentFile(merged_bytes), save=False)
+            elif exts == {"pdf"}:
+                writer = PdfWriter()
+                for seg in segments:
+                    reader = PdfReader(io.BytesIO(seg["payload"]))
+                    for pdf_page in reader.pages:
+                        writer.add_page(pdf_page)
+                output = io.BytesIO()
+                writer.write(output)
+                merged_name = f"merged_{document.id}_{ts}.pdf"
+                document.final_merged_file.save(merged_name, ContentFile(output.getvalue()), save=False)
+            elif exts == {"doc"}:
+                return {
+                    "document_id": document_id,
+                    "merged": False,
+                    "reason": "Merging multiple legacy .doc segments into one file is not supported; use .docx for all resources.",
                 }
             else:
-                bucket["count"] += 1
-                bucket["first_page"] = min(bucket["first_page"], page.page_number)
-
-        chosen = sorted(
-            payloads_by_hash.values(),
-            key=lambda b: (-b["count"], b["first_page"]),
-        )[0]
-        merged_name = f"merged_{document.id}_{timezone.now().strftime('%Y%m%d%H%M%S')}.{chosen['ext']}"
-        document.final_merged_file.save(merged_name, ContentFile(chosen["payload"]), save=False)
+                return {
+                    "document_id": document_id,
+                    "merged": False,
+                    "reason": "Cannot merge multiple segments with mixed file types into one document.",
+                }
+        merge_segments = len(segments)
     document.status = Document.Status.COMPLETED
     document.merged_at = timezone.now()
     document.save(update_fields=["final_merged_file", "status", "merged_at", "updated_at"])
-    AuditLog.objects.create(action=AuditLog.Action.MERGE_DOC, document=document, metadata={"pages_merged": len(pages)})
+    AuditLog.objects.create(
+        action=AuditLog.Action.MERGE_DOC,
+        document=document,
+        metadata={"pages_merged": len(pages), "merge_segments": merge_segments},
+    )
     return {"document_id": document_id, "merged": True, "merged_file": document.final_merged_file.url}
