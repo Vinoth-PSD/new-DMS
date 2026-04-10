@@ -78,6 +78,26 @@ class DocumentViewSet(viewsets.ModelViewSet):
     permission_classes = [IsStaffAdmin]
     parser_classes = [MultiPartParser, FormParser]
 
+    def get_queryset(self):
+        qs = Document.objects.all().order_by("-uploaded_at")
+        search = (self.request.query_params.get("search") or "").strip()
+        status_filter = (self.request.query_params.get("status") or "").strip()
+        if search:
+            qs = qs.filter(Q(title__icontains=search) | Q(original_file__icontains=search))
+        if status_filter and status_filter.upper() != "ALL":
+            status_map = {
+                "COMPLETED": Document.Status.COMPLETED,
+                "ASSIGNED": Document.Status.ASSIGNED,
+                "STARTED": Document.Status.IN_PROGRESS,
+                "IN_PROGRESS": Document.Status.IN_PROGRESS,
+                "REVIEWING": Document.Status.PENDING_APPROVAL,
+                "READY FOR MERGING": Document.Status.PENDING_APPROVAL,
+            }
+            mapped = status_map.get(status_filter.upper())
+            if mapped:
+                qs = qs.filter(status=mapped)
+        return qs
+
     def perform_create(self, serializer):
         document = serializer.save(uploaded_by=self.request.user)
         split_document_task.delay(document.id)

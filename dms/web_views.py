@@ -1,6 +1,7 @@
 from django.contrib.auth import views as auth_views
 from django.contrib.auth.models import User
-from django.db.models import Count, Q
+from django.db.models import Count, F, Q
+from django.core.paginator import Paginator
 from django.shortcuts import redirect, render
 from django.contrib.auth.decorators import login_required, user_passes_test
 from django.utils import timezone
@@ -22,6 +23,67 @@ def _mark_stale_sessions_offline() -> None:
     ResourceProfile.objects.filter(is_active_session=True).filter(
         Q(last_seen_at__isnull=True) | Q(last_seen_at__lt=cutoff)
     ).update(is_active_session=False, updated_at=timezone.now())
+
+
+def _apply_user_filters(request, base_qs, is_resource: bool):
+    search = (request.GET.get("search") or "").strip()
+    status = (request.GET.get("status") or "ALL").strip().upper()
+    sort = (request.GET.get("sort") or "az").strip().lower()
+    page_number = request.GET.get("page") or 1
+
+    qs = base_qs
+    if search:
+        qs = qs.filter(Q(username__icontains=search) | Q(email__icontains=search))
+
+    if status == "ACTIVE":
+        qs = qs.filter(is_active=True)
+    elif status == "INACTIVE":
+        qs = qs.filter(is_active=False)
+    elif status == "ONLINE":
+        cutoff = timezone.now() - timedelta(seconds=ONLINE_TTL_SECONDS)
+        qs = qs.filter(
+            resource_profile__is_active_session=True,
+            resource_profile__last_seen_at__gte=cutoff,
+        )
+    elif status == "OFFLINE":
+        cutoff = timezone.now() - timedelta(seconds=ONLINE_TTL_SECONDS)
+        qs = qs.exclude(
+            resource_profile__is_active_session=True,
+            resource_profile__last_seen_at__gte=cutoff,
+        )
+    elif is_resource and status == "FULL":
+        qs = qs.annotate(
+            active_load=Count(
+                "resource_profile__assigned_pages",
+                filter=Q(
+                    resource_profile__assigned_pages__status__in=[
+                        DocumentPage.Status.ASSIGNED,
+                        DocumentPage.Status.IN_PROGRESS,
+                    ]
+                ),
+            )
+        ).filter(active_load__gte=F("resource_profile__max_page_capacity"))
+    elif is_resource and status == "FREE":
+        qs = qs.annotate(
+            active_load=Count(
+                "resource_profile__assigned_pages",
+                filter=Q(
+                    resource_profile__assigned_pages__status__in=[
+                        DocumentPage.Status.ASSIGNED,
+                        DocumentPage.Status.IN_PROGRESS,
+                    ]
+                ),
+            )
+        ).filter(active_load__lt=F("resource_profile__max_page_capacity"))
+
+    if sort == "za":
+        qs = qs.order_by("-username")
+    else:
+        qs = qs.order_by("username")
+
+    paginator = Paginator(qs, 10)
+    page_obj = paginator.get_page(page_number)
+    return page_obj, search, status, sort, paginator
 
 
 class LoginView(auth_views.LoginView):
@@ -105,18 +167,34 @@ def document_list(request):
 @user_passes_test(_is_staff_admin)
 def resource_list(request):
     _mark_stale_sessions_offline()
-    users = (
+    base_qs = (
         User.objects.filter(resource_profile__isnull=False)
         .select_related("resource_profile")
-        .order_by("username")
     )
+    page_obj, current_search, current_status, current_sort, paginator = _apply_user_filters(
+        request,
+        base_qs,
+        is_resource=True,
+    )
+    users = list(page_obj.object_list)
     for user in users:
         user.role = "RESOURCE"
         user.is_online = _is_profile_online(user.resource_profile)
         user.is_working = user.resource_profile.current_load > 0
         user.resource_profile.max_capacity = user.resource_profile.max_page_capacity
         user.resource_profile.active_load = user.resource_profile.current_load
-    return render(request, "admin/resource_list.html", {"users": users})
+    return render(
+        request,
+        "admin/resource_list.html",
+        {
+            "users": users,
+            "page_obj": page_obj,
+            "paginator": paginator,
+            "current_search": current_search,
+            "current_status": current_status,
+            "current_sort": current_sort,
+        },
+    )
 
 
 @login_required
@@ -128,7 +206,33 @@ def create_resource(request):
 @login_required
 @user_passes_test(_is_staff_admin)
 def client_list(request):
-    return render(request, "admin/client_list.html")
+    _mark_stale_sessions_offline()
+    base_qs = (
+        User.objects.filter(is_staff=False, resource_profile__isnull=True)
+        .order_by("username")
+    )
+    page_obj, current_search, current_status, current_sort, paginator = _apply_user_filters(
+        request,
+        base_qs,
+        is_resource=False,
+    )
+    users = list(page_obj.object_list)
+    for user in users:
+        user.role = "CLIENT"
+        user.is_online = False
+        user.is_working = False
+    return render(
+        request,
+        "admin/client_list.html",
+        {
+            "users": users,
+            "page_obj": page_obj,
+            "paginator": paginator,
+            "current_search": current_search,
+            "current_status": current_status,
+            "current_sort": current_sort,
+        },
+    )
 
 
 @login_required
