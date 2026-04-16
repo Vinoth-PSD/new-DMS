@@ -5,5 +5,9 @@
   "poll_seconds": 5,
   "watch_seconds": 2,
   "abbyy_exe_path": "",
-  "process_triggered_open_only": true
+  "process_triggered_open_only": true,
+  "admin_automation_enabled": false,
+  "admin_automation_key": "same-as-server-ADMIN_AUTOMATION_KEY",
+  "merged_download_folder": "",
+  "open_merged_in_word": true
 }

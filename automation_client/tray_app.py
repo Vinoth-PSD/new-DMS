@@ -12,6 +12,10 @@ API (unchanged on server):
   GET  /api/automation/jobs/?resource_id=<id>
   GET  /api/automation/jobs/<job_id>/download/?resource_id=<id>
   POST /api/automation/jobs/<job_id>/submit/  (multipart processed_file + resource_id)
+
+Admin merged correction (optional, config.json):
+  POST /api/admin/documents/<job_id>/merged-corrected/  (multipart file + X-Admin-Automation-Key)
+  Watches merged_download_folder for files named: {job_id}_{title}_{YYYYMMDD_HHMMSS}_merged.docx
 """
 
 from __future__ import annotations
@@ -38,6 +42,11 @@ STRICT_UPLOAD_NAME = re.compile(
 )
 
 INFER_FROM_DOWNLOAD = re.compile(r"^(\d+)_(\d+)_")
+# Admin merged download from browser (Content-Disposition from server)
+MERGED_ADMIN_FILE = re.compile(
+    r"^(?P<jobid>\d+)_(?P<title>.+)_(?P<dt>\d{8}_\d{6})_merged\.(?P<ext>docx|doc|pdf|zip)$",
+    re.IGNORECASE,
+)
 MAX_UPLOAD_FAILURES = 5
 
 
@@ -90,6 +99,9 @@ def parse_runtime_config(raw: dict) -> dict:
     if not dl or not ul:
         raise RuntimeError('config.json needs "download_folder" and "upload_folder".')
 
+    md = (raw.get("merged_download_folder") or raw.get("mergedDownloadFolder") or "").strip()
+    merged_dir = Path(md) if md else Path(dl)
+
     return {
         "base_url": base_url,
         "download_folder": Path(dl),
@@ -99,6 +111,10 @@ def parse_runtime_config(raw: dict) -> dict:
         "abbyy_exe_path": (raw.get("abbyy_exe_path") or raw.get("abbyyExePath") or "").strip(),
         # EXE behavior is process-triggered: open only newly downloaded bundles.
         "process_triggered_open_only": bool(raw.get("process_triggered_open_only", True)),
+        "admin_automation_enabled": bool(raw.get("admin_automation_enabled", False)),
+        "admin_automation_key": (raw.get("admin_automation_key") or raw.get("adminAutomationKey") or "").strip(),
+        "merged_download_folder": merged_dir,
+        "open_merged_in_word": bool(raw.get("open_merged_in_word", True)),
     }
 
 
@@ -111,24 +127,36 @@ class ResourceTrayApp:
         self.watch_seconds = cfg["watch_seconds"]
         self.abbyy_hint = cfg["abbyy_exe_path"]
         self.process_triggered_open_only = cfg["process_triggered_open_only"]
+        self.admin_automation_enabled = cfg.get("admin_automation_enabled", False)
+        self.admin_automation_key = cfg.get("admin_automation_key", "")
+        self.merged_download_dir: Path = cfg["merged_download_folder"]
+        self.open_merged_in_word = cfg.get("open_merged_in_word", True)
 
         self.session = requests.Session()
         self.running = True
         self.uploaded_paths: set[str] = set()
         self.upload_failures: dict[str, int] = {}
         self.seen_download_paths: set[str] = set()
+        self.seen_merged_paths: set[str] = set()
+        self.merged_states: dict[str, dict] = {}
 
         self.download_dir.mkdir(parents=True, exist_ok=True)
         self.upload_dir.mkdir(parents=True, exist_ok=True)
+        self.merged_download_dir.mkdir(parents=True, exist_ok=True)
         for existing in self.download_dir.iterdir():
             if existing.is_file():
                 self.seen_download_paths.add(str(existing.resolve()))
+        for existing in self.merged_download_dir.iterdir():
+            if existing.is_file():
+                self.seen_merged_paths.add(str(existing.resolve()))
 
         logging.info(
-            "[START] base_url=%s download=%s upload=%s mode=process-triggered",
+            "[START] base_url=%s download=%s upload=%s merged_dl=%s admin_merged=%s mode=process-triggered",
             self.base_url,
             self.download_dir,
             self.upload_dir,
+            self.merged_download_dir,
+            bool(self.admin_automation_enabled and self.admin_automation_key),
         )
 
     def detect_abbyy(self) -> Path | None:
@@ -161,6 +189,96 @@ class ResourceTrayApp:
             logging.info("[OPEN] default handler -> %s", path.name)
         except Exception as exc:
             logging.error("[OPEN] failed: %s", exc)
+
+    def open_microsoft_word(self, path: Path) -> None:
+        """Prefer WINWORD.EXE on Windows so merged .docx opens in Word."""
+        if sys.platform == "win32":
+            program_files = os.environ.get("ProgramFiles", r"C:\Program Files")
+            program_files_x86 = os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")
+            for cand in (
+                Path(program_files) / "Microsoft Office" / "root" / "Office16" / "WINWORD.EXE",
+                Path(program_files) / "Microsoft Office" / "Office16" / "WINWORD.EXE",
+                Path(program_files_x86) / "Microsoft Office" / "root" / "Office16" / "WINWORD.EXE",
+            ):
+                if cand.is_file():
+                    try:
+                        subprocess.Popen([str(cand), str(path.resolve())], shell=False)
+                        logging.info("[ADMIN-MERGED] Word -> %s", path.name)
+                        return
+                    except Exception as exc:
+                        logging.warning("[ADMIN-MERGED] Word launch failed: %s", exc)
+        self.open_in_editor(path)
+
+    def upload_merged_correction(self, path: Path, job_id: int) -> bool:
+        url = f"{self.base_url}/api/admin/documents/{job_id}/merged-corrected/"
+        try:
+            with path.open("rb") as fh:
+                resp = self.session.post(
+                    url,
+                    files={"file": (path.name, fh)},
+                    headers={"X-Admin-Automation-Key": self.admin_automation_key},
+                    timeout=300,
+                )
+            if resp.ok:
+                logging.info("[ADMIN-MERGED] uploaded correction job_id=%s file=%s", job_id, path.name)
+                return True
+            logging.error("[ADMIN-MERGED] upload fail %s -> %s %s", path.name, resp.status_code, resp.text)
+        except Exception as exc:
+            logging.error("[ADMIN-MERGED] upload error: %s", exc)
+        return False
+
+    def scan_admin_merged_downloads(self) -> None:
+        if not self.admin_automation_enabled or not self.admin_automation_key:
+            return
+        for p in self.merged_download_dir.iterdir():
+            if not p.is_file():
+                continue
+            m = MERGED_ADMIN_FILE.match(p.name)
+            if not m:
+                continue
+            full = str(p.resolve())
+            job_id = int(m.group("jobid"))
+            if full not in self.seen_merged_paths:
+                self.seen_merged_paths.add(full)
+                if self.open_merged_in_word and p.suffix.lower() in (".docx", ".doc"):
+                    self.open_microsoft_word(p)
+                else:
+                    self.open_in_editor(p)
+                st = p.stat()
+                self.merged_states[full] = {
+                    "job_id": job_id,
+                    "last_uploaded": (st.st_mtime, st.st_size),
+                    "pending": None,
+                    "stable": 0,
+                }
+                logging.info("[ADMIN-MERGED] new file tracked: %s", p.name)
+                continue
+
+            state = self.merged_states.setdefault(
+                full,
+                {
+                    "job_id": job_id,
+                    "last_uploaded": (0.0, 0),
+                    "pending": None,
+                    "stable": 0,
+                },
+            )
+            try:
+                st = p.stat()
+            except OSError:
+                continue
+            cur = (st.st_mtime, st.st_size)
+            if cur == state["last_uploaded"]:
+                continue
+            if state["pending"] != cur:
+                state["pending"] = cur
+                state["stable"] = 1
+                continue
+            state["stable"] += 1
+            if state["stable"] >= 2 and self.upload_merged_correction(p, state["job_id"]):
+                state["last_uploaded"] = cur
+                state["pending"] = None
+                state["stable"] = 0
 
     def parse_upload(self, fname: str) -> dict | None:
         m = STRICT_UPLOAD_NAME.match(fname)
@@ -259,6 +377,7 @@ class ResourceTrayApp:
             try:
                 if self.process_triggered_open_only:
                     self.scan_browser_saved_downloads()
+                self.scan_admin_merged_downloads()
                 self.scan_uploads()
             except requests.RequestException as exc:
                 logging.error("[HTTP] %s", exc)

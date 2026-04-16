@@ -1,10 +1,10 @@
 from celery import shared_task
-from django.core.files.base import ContentFile
 from django.utils import timezone
 from pypdf import PdfReader, PdfWriter
 import io
 import hashlib
 from .models import AuditLog, Document, DocumentPage
+from .merged_versioning import finalize_merged_output
 from .services import assign_unassigned_pages, split_document_pages
 
 
@@ -55,6 +55,8 @@ def merge_document_task(document_id: int) -> dict:
     writer = PdfWriter()
     all_pdf = all((page.processed_file.name or "").lower().endswith(".pdf") for page in pages)
     merge_segments = 1
+    ts = timezone.now().strftime("%Y%m%d%H%M%S")
+
     if all_pdf:
         for page in pages:
             with page.processed_file.open("rb") as stream:
@@ -63,12 +65,9 @@ def merge_document_task(document_id: int) -> dict:
                     writer.add_page(pdf_page)
         output = io.BytesIO()
         writer.write(output)
-        merged_name = f"merged_{document.id}_{timezone.now().strftime('%Y%m%d%H%M%S')}.pdf"
-        document.final_merged_file.save(merged_name, ContentFile(output.getvalue()), save=False)
+        merged_name = f"merged_{document.id}_{ts}.pdf"
+        finalize_merged_output(document, output.getvalue(), merged_name, actor=None)
     else:
-        # Non-PDF: each resource's Word upload is duplicated onto every page they own, so
-        # pages 1–15 share one hash and 16–24 another. We must not pick the "most common"
-        # hash (that drops whole resources). Group consecutive identical payloads in page order.
         segments: list[dict] = []
         for page in pages:
             with page.processed_file.open("rb") as stream:
@@ -88,17 +87,17 @@ def merge_document_task(document_id: int) -> dict:
             else:
                 segments[-1]["page_end"] = page.page_number
 
-        ts = timezone.now().strftime("%Y%m%d%H%M%S")
+        merge_segments = len(segments)
         if len(segments) == 1:
             seg = segments[0]
             merged_name = f"merged_{document.id}_{ts}.{seg['ext']}"
-            document.final_merged_file.save(merged_name, ContentFile(seg["payload"]), save=False)
+            finalize_merged_output(document, seg["payload"], merged_name, actor=None)
         else:
             exts = {s["ext"] for s in segments}
             if exts == {"docx"}:
                 merged_bytes = _merge_docx_byte_segments([s["payload"] for s in segments])
                 merged_name = f"merged_{document.id}_{ts}.docx"
-                document.final_merged_file.save(merged_name, ContentFile(merged_bytes), save=False)
+                finalize_merged_output(document, merged_bytes, merged_name, actor=None)
             elif exts == {"pdf"}:
                 writer = PdfWriter()
                 for seg in segments:
@@ -108,7 +107,7 @@ def merge_document_task(document_id: int) -> dict:
                 output = io.BytesIO()
                 writer.write(output)
                 merged_name = f"merged_{document.id}_{ts}.pdf"
-                document.final_merged_file.save(merged_name, ContentFile(output.getvalue()), save=False)
+                finalize_merged_output(document, output.getvalue(), merged_name, actor=None)
             elif exts == {"doc"}:
                 return {
                     "document_id": document_id,
@@ -121,10 +120,8 @@ def merge_document_task(document_id: int) -> dict:
                     "merged": False,
                     "reason": "Cannot merge multiple segments with mixed file types into one document.",
                 }
-        merge_segments = len(segments)
-    document.status = Document.Status.COMPLETED
-    document.merged_at = timezone.now()
-    document.save(update_fields=["final_merged_file", "status", "merged_at", "updated_at"])
+
+    document.refresh_from_db()
     AuditLog.objects.create(
         action=AuditLog.Action.MERGE_DOC,
         document=document,

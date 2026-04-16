@@ -53,6 +53,7 @@ class ResourceSerializer(serializers.ModelSerializer):
 class DocumentSerializer(serializers.ModelSerializer):
     created_at = serializers.DateTimeField(source="uploaded_at", read_only=True)
     assigned_resources = serializers.SerializerMethodField()
+    merged_versions = serializers.SerializerMethodField()
 
     class Meta:
         model = Document
@@ -68,6 +69,8 @@ class DocumentSerializer(serializers.ModelSerializer):
             "created_at",
             "final_merged_file",
             "merged_at",
+            "merged_revision",
+            "merged_versions",
             "assigned_resources",
         )
         read_only_fields = (
@@ -78,6 +81,8 @@ class DocumentSerializer(serializers.ModelSerializer):
             "uploaded_at",
             "final_merged_file",
             "merged_at",
+            "merged_revision",
+            "merged_versions",
         )
         extra_kwargs = {"title": {"required": False, "allow_blank": True}}
 
@@ -90,6 +95,28 @@ class DocumentSerializer(serializers.ModelSerializer):
         document.total_pages = get_total_pages(document)
         document.save(update_fields=["total_pages", "updated_at"])
         return document
+
+    def get_merged_versions(self, obj: Document):
+        out = []
+        for row in obj.merged_version_history.order_by("version"):
+            out.append(
+                {
+                    "version": row.version,
+                    "label": f"v{row.version}",
+                    "file": row.file.url if row.file else None,
+                    "is_current": False,
+                }
+            )
+        if obj.merged_revision and obj.final_merged_file:
+            out.append(
+                {
+                    "version": obj.merged_revision,
+                    "label": f"v{obj.merged_revision}",
+                    "file": obj.final_merged_file.url,
+                    "is_current": True,
+                }
+            )
+        return out
 
     def get_assigned_resources(self, obj: Document):
         pages = (

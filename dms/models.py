@@ -74,9 +74,31 @@ class Document(TimeStampedModel):
     uploaded_at = models.DateTimeField(default=timezone.now)
     final_merged_file = models.FileField(upload_to="final/%Y/%m/%d/", null=True, blank=True)
     merged_at = models.DateTimeField(null=True, blank=True)
+    merged_revision = models.PositiveIntegerField(
+        default=0,
+        help_text="Current merged file version number (v1, v2, …). Increments on each merge or correction upload.",
+    )
 
     def __str__(self) -> str:
         return self.title
+
+
+class MergedFileVersion(TimeStampedModel):
+    """Superseded merged outputs (v1, v2, …). Latest merged file stays on Document.final_merged_file."""
+
+    document = models.ForeignKey(Document, on_delete=models.CASCADE, related_name="merged_version_history")
+    version = models.PositiveIntegerField()  # 1-based snapshot index when superseded
+    file = models.FileField(upload_to="merged_versions/%Y/%m/%d/")
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="merged_versions_saved"
+    )
+
+    class Meta:
+        ordering = ("version",)
+        unique_together = ("document", "version")
+
+    def __str__(self) -> str:
+        return f"{self.document_id} merged v{self.version}"
 
 
 class DocumentPage(TimeStampedModel):

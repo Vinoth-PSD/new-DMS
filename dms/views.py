@@ -4,6 +4,8 @@ import zipfile
 import re
 import hashlib
 from datetime import date
+from pathlib import Path
+from urllib.parse import quote
 from django.db.models import Count, Q
 from django.utils import timezone
 from django.contrib.auth.models import User
@@ -18,8 +20,9 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from pypdf import PdfReader, PdfWriter
-from .models import Document, DocumentPage, ResourceProfile
-from .permissions import IsResourceUser, IsStaffAdmin
+from .models import AuditLog, Document, DocumentPage, ResourceProfile
+from .merged_versioning import finalize_merged_output, suggested_merged_download_filename
+from .permissions import IsResourceUser, IsStaffAdmin, IsStaffAdminOrAutomationKey
 from .serializers import (
     DocumentPageSerializer,
     DocumentSerializer,
@@ -78,6 +81,11 @@ class DocumentViewSet(viewsets.ModelViewSet):
     permission_classes = [IsStaffAdmin]
     parser_classes = [MultiPartParser, FormParser]
 
+    def get_permissions(self):
+        if getattr(self, "action", None) == "upload_merged_corrected":
+            return [IsStaffAdminOrAutomationKey()]
+        return [IsStaffAdmin()]
+
     def get_queryset(self):
         qs = Document.objects.all().order_by("-uploaded_at")
         search = (self.request.query_params.get("search") or "").strip()
@@ -126,15 +134,109 @@ class DocumentViewSet(viewsets.ModelViewSet):
         content_type, encoding = mimetypes.guess_type(basename)
         content_type = content_type or "application/octet-stream"
         file_handle = field.open("rb")
+        suggested = suggested_merged_download_filename(document)
         response = FileResponse(
             file_handle,
             content_type=content_type,
             as_attachment=True,
-            filename=basename,
+            filename=suggested,
+        )
+        response["Content-Disposition"] = (
+            f'attachment; filename="{suggested}"; filename*=UTF-8\'\'{quote(suggested)}'
         )
         if encoding:
             response["Content-Encoding"] = encoding
         return response
+
+    @action(detail=True, methods=["get"], url_path="merged-versions")
+    def merged_versions(self, request, pk=None):
+        document = self.get_object()
+        versions = []
+        for row in document.merged_version_history.order_by("version"):
+            versions.append(
+                {
+                    "version": row.version,
+                    "label": f"v{row.version}",
+                    "file": row.file.url if row.file else None,
+                    "is_current": False,
+                    "created_at": row.created_at,
+                }
+            )
+        if document.merged_revision and document.final_merged_file:
+            versions.append(
+                {
+                    "version": document.merged_revision,
+                    "label": f"v{document.merged_revision}",
+                    "file": document.final_merged_file.url,
+                    "is_current": True,
+                    "created_at": document.merged_at,
+                }
+            )
+        return Response({"merged_revision": document.merged_revision, "versions": versions})
+
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path=r"merged-version/(?P<version_num>[0-9]+)/download",
+    )
+    def download_merged_version(self, request, pk=None, version_num=None):
+        document = self.get_object()
+        try:
+            v = int(version_num)
+        except (TypeError, ValueError):
+            return Response({"detail": "Invalid version."}, status=status.HTTP_400_BAD_REQUEST)
+        if document.merged_revision and v == document.merged_revision:
+            return Response(
+                {"detail": "Current version is downloaded via download-final."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        row = document.merged_version_history.filter(version=v).first()
+        if not row or not row.file or not row.file.name:
+            return Response({"detail": "Version not found."}, status=status.HTTP_404_NOT_FOUND)
+        inner = row.file.name.rsplit("/", 1)[-1]
+        content_type, encoding = mimetypes.guess_type(inner)
+        content_type = content_type or "application/octet-stream"
+        fh = row.file.open("rb")
+        stem = re.sub(r"[^A-Za-z0-9_-]+", "_", document.title or "document").strip("_")[:100] or "document"
+        suggested = f"{document.id}_{stem}_v{v}{Path(row.file.name).suffix.lower() or '.docx'}"
+        from django.utils.text import get_valid_filename
+
+        suggested = get_valid_filename(suggested)
+        response = FileResponse(fh, content_type=content_type, as_attachment=True, filename=suggested)
+        response["Content-Disposition"] = (
+            f'attachment; filename="{suggested}"; filename*=UTF-8\'\'{quote(suggested)}'
+        )
+        if encoding:
+            response["Content-Encoding"] = encoding
+        return response
+
+    @action(detail=True, methods=["post"], url_path="merged-corrected")
+    def upload_merged_corrected(self, request, pk=None):
+        document = self.get_object()
+        f = request.FILES.get("file") or request.FILES.get("processed_file")
+        if not f:
+            return Response({"detail": "file or processed_file is required."}, status=status.HTTP_400_BAD_REQUEST)
+        ext = Path(f.name).suffix.lower() or ".docx"
+        if ext not in (".docx", ".doc", ".pdf", ".zip"):
+            return Response({"detail": "Unsupported file type."}, status=status.HTTP_400_BAD_REQUEST)
+        data = f.read()
+        ts = timezone.now().strftime("%Y%m%d%H%M%S")
+        storage_name = f"merged_{document.id}_{ts}{ext}"
+        actor = request.user if request.user.is_authenticated else None
+        finalize_merged_output(document, data, storage_name, actor=actor)
+        document.refresh_from_db()
+        AuditLog.objects.create(
+            action=AuditLog.Action.MERGE_DOC,
+            document=document,
+            actor=actor,
+            metadata={"source": "merged_corrected_upload"},
+        )
+        return Response(
+            {
+                "merged_revision": document.merged_revision,
+                "merged_file": document.final_merged_file.url if document.final_merged_file else None,
+            }
+        )
 
     @action(detail=True, methods=["get"], url_path="resource-processed-bundle")
     def resource_processed_bundle(self, request, pk=None):

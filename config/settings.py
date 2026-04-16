@@ -8,6 +8,8 @@ DEBUG = os.getenv("DJANGO_DEBUG", "1") == "1"
 ALLOWED_HOSTS = os.getenv("DJANGO_ALLOWED_HOSTS", "*").split(",")
 # Set DJANGO_SERVE_MEDIA=1 when using runserver/Gunicorn without Nginx serving /media/
 SERVE_MEDIA = os.getenv("DJANGO_SERVE_MEDIA", "1") == "1"
+# Optional: same value in automation tray config.json — allows POST /api/admin/documents/<id>/merged-corrected/
+ADMIN_AUTOMATION_KEY = os.getenv("ADMIN_AUTOMATION_KEY", "")
 
 INSTALLED_APPS = [
     "django.contrib.admin",
