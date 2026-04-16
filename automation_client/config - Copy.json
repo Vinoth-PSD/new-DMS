@@ -1,0 +1,9 @@
+{
+  "base_url": "http://ec2-13-126-44-206.ap-south-1.compute.amazonaws.com:8003",
+  "download_folder": "C:\\DocPro\\downloads",
+  "upload_folder": "C:\\DocPro\\upload",
+  "poll_seconds": 5,
+  "watch_seconds": 2,
+  "abbyy_exe_path": "C:/Program Files (x86)/ABBYY FineReader 14/FineReaderOCR.exe",
+  "process_triggered_open_only": true
+}
