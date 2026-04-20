@@ -257,6 +257,17 @@
                                 style="padding: 0.25rem 0.75rem; font-size:12px; border-color: var(--ac-accent-red); color: var(--ac-accent-red);">
                                 <i class="fas fa-edit"></i> Edit
                             </button>
+                            {% if request.resolver_match.url_name == 'resource_list' %}
+                            <button
+                                type="button"
+                                class="ac-btn ac-btn-secondary action-btn"
+                                data-action="manual-toggle"
+                                data-resource-id="{{ u.resource_profile.id }}"
+                                data-manual-enabled="{{ u.resource_profile.manual_upload_enabled|yesno:'true,false' }}"
+                                style="padding: 0.25rem 0.75rem; font-size:12px;">
+                                {% if u.resource_profile.manual_upload_enabled %}Manual: Enabled{% else %}Manual: Disabled{% endif %}
+                            </button>
+                            {% endif %}
                             <button type="button" class="ac-btn ac-btn-secondary action-btn" data-action="delete"
                                 data-id="{{ u.id }}" data-username="{{ u.username }}"
                                 style="padding: 0.25rem 0.75rem; font-size:12px; color: #ef4444;">

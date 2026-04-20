@@ -106,4 +106,33 @@ document.addEventListener('DOMContentLoaded', function () {
             showToast('An error occurred. Please try again.', 'error');
         });
     });
+
+    document.addEventListener('click', async function (e) {
+        const button = e.target.closest('.action-btn[data-action="manual-toggle"]');
+        if (!button) return;
+        const resourceId = button.dataset.resourceId;
+        const current = String(button.dataset.manualEnabled || 'false') === 'true';
+        const nextEnabled = !current;
+        try {
+            const response = await fetch(`/api/admin/resources/${resourceId}/manual-upload-toggle/`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCsrfToken()
+                },
+                body: JSON.stringify({ enabled: nextEnabled })
+            });
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                showToast(err.detail || 'Failed to update manual mode.', 'error');
+                return;
+            }
+            button.dataset.manualEnabled = nextEnabled ? 'true' : 'false';
+            button.textContent = nextEnabled ? 'Manual: Enabled' : 'Manual: Disabled';
+            showToast(`Manual mode ${nextEnabled ? 'enabled' : 'disabled'} for resource.`, 'success');
+        } catch (error) {
+            console.error('Error updating manual mode:', error);
+            showToast('An error occurred while updating manual mode.', 'error');
+        }
+    });
 });

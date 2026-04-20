@@ -34,6 +34,7 @@
                         <select id="docStatusFilter" class="ac-select" onchange="filterDocuments()">
                             <option value="ALL">Status: All</option>
                             <option value="Completed">Completed</option>
+                            <option value="ON_HOLD">On Hold</option>
                             <option value="Ready for Merging">Ready for Merging</option>
                             <option value="Reviewing">Reviewing</option>
                             <option value="Started">Started</option>
@@ -709,6 +710,46 @@
         box-shadow: 0 2px 6px rgba(220, 38, 38, 0.3);
     }
 
+    .prioritize-modal-card {
+        width: 100%;
+        max-width: 460px;
+        background: #111111;
+        border: 1px solid rgba(220, 38, 38, 0.28);
+        border-radius: 12px;
+        box-shadow: 0 16px 36px rgba(0, 0, 0, 0.45);
+    }
+
+    .prioritize-modal-card .modal-header {
+        border-bottom: 1px solid rgba(220, 38, 38, 0.18);
+    }
+
+    .prioritize-modal-card .modal-body {
+        padding-top: 0.75rem;
+    }
+
+    .prioritize-multi-select {
+        width: 100%;
+        min-height: 170px;
+        border: 1px solid rgba(220, 38, 38, 0.35);
+        border-radius: 8px;
+        background: #1a1a1a;
+        color: #f4f4f5;
+        padding: 0.5rem;
+        font-size: 0.9rem;
+    }
+
+    .prioritize-multi-select:focus {
+        outline: none;
+        border-color: rgba(220, 38, 38, 0.7);
+        box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.18);
+    }
+
+    .prioritize-help {
+        color: #a1a1aa;
+        font-size: 0.75rem;
+        margin-top: 6px;
+    }
+
     /* Horizontal Scroll for Assigned To Column */
     .col-assigned {
         max-width: 280px;
@@ -760,7 +801,9 @@
     let expandedDocId = null;
     let pendingRejectionId = null;
     let pendingApprovalId = null;
+    let pendingPrioritizeDocId = null;
     let sortOrder = 'desc';
+    let pauseAutoRefresh = false;
 
     function toggleSort() {
         sortOrder = sortOrder === 'asc' ? 'desc' : 'asc';
@@ -889,6 +932,7 @@
             if (gStatus === 'Merge Complete' || gStatus === 'Approved by Admin') gStatus = 'Completed';
 
             if (gStatus === 'Completed' || gStatus === 'Ready for Merging') statusClass += ' active';
+            else if (gStatus === 'On Hold' || gStatus === 'ON_HOLD') statusClass += ' ac-status-pill-warning';
             else if (gStatus === 'Failed') statusClass += ' inactive';
             else if (gStatus === 'Reviewing' || gStatus === 'Awaiting Approval' || gStatus === 'Validating Pages') statusClass += ' ac-status-pill-warning';
             else if (gStatus === 'Started' || gStatus.includes('Partially')) statusClass += ' processing-status';
@@ -932,10 +976,15 @@
                 miniAuditHtml = Object.values(groupedByResource).map(res => {
                     const sortedPages = (res.pages || []).slice().sort((a, b) => a - b);
                     const pageLabel = formatPageRange(sortedPages);
+                    const pageCsv = (res.pages || []).join(',');
                     const startedAt = res.started_at ? new Date(res.started_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Not Started';
                     const submittedAt = res.submitted_at
                         ? new Date(res.submitted_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
                         : `<span class="pending-highlight">Pending</span>`;
+                    const options = (doc.available_resources || [])
+                        .filter((r) => String(r.id) !== String(res.resource_profile_id || ''))
+                        .map((r) => `<option value="${r.id}">${r.username} (#${r.id})</option>`)
+                        .join('');
 
                     let resIcon = '⚪';
                     if (res.submitted_at) resIcon = '✅';
@@ -971,6 +1020,12 @@
                             ${res.processed_count > 0 && res.resource_profile_id != null
                                 ? `<a href="/api/admin/documents/${doc.id}/resource-processed-bundle/?resource_profile_id=${res.resource_profile_id}" target="_blank" class="trace-action-btn trace-btn-view">Download (${res.processed_count} page${res.processed_count === 1 ? '' : 's'})</a>`
                                 : ''}
+                            <button class="trace-action-btn" onclick="event.stopPropagation(); if(confirm('Put this split on hold?')) holdSplit('${doc.id}', '${pageCsv}')">Hold Split</button>
+                            <select id="reassign-target-${doc.id}-${res.resource_profile_id || 'unassigned'}" class="trace-action-btn" style="background:#fff; color:#111;">
+                                <option value="">Select Resource</option>
+                                ${options}
+                            </select>
+                            <button class="trace-action-btn" onclick="event.stopPropagation(); reassignSplit('${doc.id}', '${pageCsv}', document.getElementById('reassign-target-${doc.id}-${res.resource_profile_id || 'unassigned'}')?.value)">Reassign Split</button>
                         </div>
                     </div>`;
                 }).join('');
@@ -1040,6 +1095,12 @@
 
             actions += `
             <button id="download-btn-${doc.id}" onclick="event.stopPropagation(); downloadDocument('${doc.id}')" class="ac-btn ${downloadBtnClass}" style="${downloadBtnDisabled}">Download</button>
+            <button onclick="event.stopPropagation(); prioritizeJob('${doc.id}')" class="ac-btn" style="padding: 4px 10px; font-size:12px; margin-left:6px;">
+                ${doc.is_urgent ? 'Reprioritize' : 'Prioritize'}
+            </button>
+            <button onclick="event.stopPropagation(); toggleHoldDocument('${doc.id}', ${doc.is_on_hold ? 'false' : 'true'})" class="ac-btn" style="padding: 4px 10px; font-size:12px; margin-left:6px;">
+                ${doc.is_on_hold ? 'Release Hold' : 'Hold Job'}
+            </button>
             <button onclick="event.stopPropagation(); deleteDocument('${doc.id}')" class="ac-btn" style="padding: 4px; color:var(--accent-red); background:none; border:none; margin-left:8px;">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M3 6h18m-2 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"></path>
@@ -1210,6 +1271,151 @@
             console.error(err);
             showToast("Network error during merge.", "error");
         }
+    }
+
+    function pageIdsFromDocAndNumbers(docId, csvPageNumbers) {
+        const doc = allDocuments.find((d) => String(d.id) === String(docId));
+        if (!doc) return [];
+        const wanted = new Set(String(csvPageNumbers || '').split(',').map((x) => Number(x.trim())).filter(Boolean));
+        return (doc.assigned_resources || [])
+            .filter((r) => wanted.has(Number(r.page_number)))
+            .map((r) => r.id);
+    }
+
+    async function toggleHoldDocument(id, shouldHold) {
+        const endpoint = shouldHold ? 'hold' : 'unhold';
+        try {
+            const response = await fetch(`/api/admin/documents/${id}/${endpoint}/`, {
+                method: 'POST',
+                headers: { 'X-CSRFToken': '{{ csrf_token }}' }
+            });
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                showToast(err.detail || 'Unable to update hold state.', 'error');
+                return;
+            }
+            showToast(shouldHold ? 'Job put on hold.' : 'Job released.', 'success');
+            await fetchDocuments();
+        } catch (err) {
+            console.error(err);
+            showToast('Network error while updating hold.', 'error');
+        }
+    }
+
+    async function holdSplit(docId, csvPageNumbers) {
+        const pageIds = pageIdsFromDocAndNumbers(docId, csvPageNumbers);
+        if (!pageIds.length) {
+            showToast('No active split pages found to hold.', 'error');
+            return;
+        }
+        try {
+            const response = await fetch(`/api/admin/documents/${docId}/hold-split/`, {
+                method: 'POST',
+                headers: { 'X-CSRFToken': '{{ csrf_token }}', 'Content-Type': 'application/json' },
+                body: JSON.stringify({ page_ids: pageIds }),
+            });
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                showToast(err.detail || 'Unable to hold split.', 'error');
+                return;
+            }
+            showToast('Selected split moved to On Hold.', 'success');
+            await fetchDocuments();
+        } catch (err) {
+            console.error(err);
+            showToast('Network error while holding split.', 'error');
+        }
+    }
+
+    async function reassignSplit(docId, csvPageNumbers, selectedTarget = '') {
+        const pageIds = pageIdsFromDocAndNumbers(docId, csvPageNumbers);
+        if (!pageIds.length) {
+            showToast('No split pages found to reassign.', 'error');
+            return;
+        }
+        const target = selectedTarget || '';
+        if (!target) {
+            showToast('Please select a target resource from the dropdown.', 'warning');
+            return;
+        }
+        const doc = allDocuments.find((d) => String(d.id) === String(docId));
+        const targetRow = (doc?.available_resources || []).find((r) => String(r.id) === String(target));
+        const targetName = targetRow ? targetRow.username : `#${target}`;
+        if (!confirm(`Reassign selected split pages to ${targetName}?`)) return;
+        try {
+            const response = await fetch(`/api/admin/documents/${docId}/reassign-split/`, {
+                method: 'POST',
+                headers: { 'X-CSRFToken': '{{ csrf_token }}', 'Content-Type': 'application/json' },
+                body: JSON.stringify({ page_ids: pageIds, resource_profile_id: target }),
+            });
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                showToast(err.detail || 'Unable to reassign split.', 'error');
+                return;
+            }
+            showToast('Split reassigned successfully.', 'success');
+            await fetchDocuments();
+        } catch (err) {
+            console.error(err);
+            showToast('Network error while reassigning split.', 'error');
+        } finally {
+            pauseAutoRefresh = false;
+        }
+    }
+
+    async function prioritizeJob(docId) {
+        const doc = allDocuments.find((d) => String(d.id) === String(docId));
+        if (!doc) return;
+        const availableResources = doc.available_resources || [];
+        if (!availableResources.length) {
+            showToast('No resources available for priority assignment.', 'warning');
+            return;
+        }
+        pendingPrioritizeDocId = docId;
+        const modal = document.getElementById('prioritize-modal');
+        const select = document.getElementById('prioritize-resource-select');
+        const summary = document.getElementById('prioritize-doc-summary');
+        summary.textContent = `Document: ${doc.title || 'Untitled'} (ID: ${doc.id})`;
+        select.innerHTML = availableResources
+            .map((r) => `<option value="${r.id}">${r.username} (#${r.id})</option>`)
+            .join('');
+        modal.classList.add('active');
+        modal.removeAttribute('aria-hidden');
+        trapFocus(modal);
+    }
+
+    async function submitPrioritizeJob() {
+        const select = document.getElementById('prioritize-resource-select');
+        const selected = Array.from(select.selectedOptions).map((x) => Number(x.value));
+        if (!selected.length) {
+            showToast('Please select at least one resource.', 'warning');
+            return;
+        }
+        try {
+            const response = await fetch(`/api/admin/documents/${pendingPrioritizeDocId}/prioritize/`, {
+                method: 'POST',
+                headers: { 'X-CSRFToken': '{{ csrf_token }}', 'Content-Type': 'application/json' },
+                body: JSON.stringify({ resource_profile_ids: selected }),
+            });
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                showToast(err.detail || 'Unable to prioritize this job.', 'error');
+                return;
+            }
+            showToast('Job prioritized and assigned immediately.', 'success');
+            closePrioritizeModal();
+            await fetchDocuments();
+        } catch (err) {
+            console.error(err);
+            showToast('Network error while prioritizing job.', 'error');
+        }
+    }
+
+    function closePrioritizeModal() {
+        const modal = document.getElementById('prioritize-modal');
+        modal.classList.remove('active');
+        modal.setAttribute('aria-hidden', 'true');
+        pendingPrioritizeDocId = null;
     }
 
     async function handleAction(id, action) {
@@ -1870,6 +2076,7 @@
         if (e.key === 'Escape') {
             closeDetails();
             closeAssignmentArtifacts();
+            closePrioritizeModal();
         }
     });
 
@@ -1878,10 +2085,26 @@
     setInterval(() => {
         // Only refresh if no modals are open to avoid UI flickering/interruption during active tasks
         const activeModals = document.querySelectorAll('.ac-modal-overlay.active, .modal-overlay.active');
-        if (activeModals.length === 0) {
+        if (!pauseAutoRefresh && activeModals.length === 0) {
             fetchDocuments();
         }
     }, 3000);
+
+    document.addEventListener('focusin', (e) => {
+        if (e.target && e.target.id && e.target.id.startsWith('reassign-target-')) {
+            pauseAutoRefresh = true;
+        }
+    });
+    document.addEventListener('focusout', (e) => {
+        if (e.target && e.target.id && e.target.id.startsWith('reassign-target-')) {
+            setTimeout(() => {
+                const active = document.activeElement;
+                if (!(active && active.id && active.id.startsWith('reassign-target-'))) {
+                    pauseAutoRefresh = false;
+                }
+            }, 150);
+        }
+    });
 </script>
 
 </div>
@@ -2066,6 +2289,33 @@
         </div>
         <div class="modal-footer">
             <button onclick="closeAssignmentArtifacts()" class="ac-btn ac-btn-secondary">Close</button>
+        </div>
+    </div>
+</div>
+
+<!-- Prioritize Job Modal -->
+<div id="prioritize-modal" class="ac-modal-overlay" role="dialog" aria-hidden="true">
+    <div class="modal-content confirm-card prioritize-modal-card">
+        <div class="modal-branding-bar" style="background: var(--accent-red);"></div>
+        <div class="modal-header" style="border-bottom: none; padding-bottom: 0.5rem;">
+            <div class="modal-title-group">
+                <h2 style="font-size: 1.15rem; color: var(--accent-red);">Prioritize Job</h2>
+                <p id="prioritize-doc-summary">Document</p>
+            </div>
+            <button onclick="closePrioritizeModal()" class="modal-close-btn">&times;</button>
+        </div>
+        <div class="modal-body" style="overflow: hidden;">
+            <label class="info-label" style="margin-bottom: 8px; display: block;">Select Resources</label>
+            <select id="prioritize-resource-select" class="prioritize-multi-select" multiple size="6">
+            </select>
+            <div class="prioritize-help">Use Ctrl/Cmd + Click to select multiple resources.</div>
+        </div>
+        <div class="modal-footer"
+            style="background: rgba(0,0,0,0.1); border-top: 1px solid var(--border-color); padding: 1.25rem; display: flex; gap: 12px; justify-content: flex-end;">
+            <button onclick="closePrioritizeModal()" class="ac-btn ac-btn-secondary"
+                style="border-color: var(--border-color); color: #888;">Cancel</button>
+            <button onclick="submitPrioritizeJob()" class="ac-btn"
+                style="background: var(--accent-red); color: white; border: none; padding: 10px 20px; font-weight: 700; border-radius: 6px;">Assign Priority</button>
         </div>
     </div>
 </div>

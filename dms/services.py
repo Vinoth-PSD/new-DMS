@@ -13,9 +13,15 @@ ONLINE_TTL_SECONDS = 60
 
 
 def update_document_status(document: Document) -> None:
+    if document.is_on_hold:
+        document.status = Document.Status.ON_HOLD
+        document.save(update_fields=["status", "updated_at"])
+        return
     page_statuses = set(document.pages.values_list("status", flat=True))
     if not page_statuses:
         document.status = Document.Status.NOT_ASSIGNED
+    elif DocumentPage.Status.ON_HOLD in page_statuses:
+        document.status = Document.Status.ON_HOLD
     elif page_statuses == {DocumentPage.Status.COMPLETED}:
         document.status = Document.Status.COMPLETED
     elif DocumentPage.Status.IN_PROGRESS in page_statuses:
@@ -41,7 +47,7 @@ def assign_unassigned_pages(document_id: int | None = None) -> int:
     ]
     unassigned_pages = (
         DocumentPage.objects.select_for_update()
-        .filter(status=DocumentPage.Status.NOT_ASSIGNED, assigned_to__isnull=True)
+        .filter(status=DocumentPage.Status.NOT_ASSIGNED, assigned_to__isnull=True, document__is_on_hold=False)
         .order_by("document_id", "page_number")
     )
     if document_id:

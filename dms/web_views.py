@@ -183,6 +183,7 @@ def resource_list(request):
         user.is_working = user.resource_profile.current_load > 0
         user.resource_profile.max_capacity = user.resource_profile.max_page_capacity
         user.resource_profile.active_load = user.resource_profile.current_load
+        user.resource_profile.manual_upload_enabled = bool(user.resource_profile.manual_upload_enabled)
     return render(
         request,
         "admin/resource_list.html",

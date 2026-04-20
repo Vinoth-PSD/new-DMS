@@ -15,7 +15,7 @@ from django.db import transaction
 from django.core.files.base import ContentFile
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action, api_view, authentication_classes, permission_classes
-from rest_framework.parsers import FormParser, MultiPartParser
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
@@ -74,12 +74,22 @@ class ResourceViewSet(viewsets.ModelViewSet):
             return ResourceCreateSerializer
         return ResourceSerializer
 
+    @action(detail=True, methods=["post"], url_path="manual-upload-toggle")
+    def manual_upload_toggle(self, request, pk=None):
+        profile = self.get_object()
+        enabled = request.data.get("enabled")
+        if isinstance(enabled, str):
+            enabled = enabled.strip().lower() in {"1", "true", "yes", "on"}
+        profile.manual_upload_enabled = bool(enabled)
+        profile.save(update_fields=["manual_upload_enabled", "updated_at"])
+        return Response({"id": profile.id, "manual_upload_enabled": profile.manual_upload_enabled})
+
 
 class DocumentViewSet(viewsets.ModelViewSet):
     queryset = Document.objects.all().order_by("-uploaded_at")
     serializer_class = DocumentSerializer
     permission_classes = [IsStaffAdmin]
-    parser_classes = [MultiPartParser, FormParser]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def get_permissions(self):
         if getattr(self, "action", None) == "upload_merged_corrected":
@@ -100,11 +110,34 @@ class DocumentViewSet(viewsets.ModelViewSet):
                 "IN_PROGRESS": Document.Status.IN_PROGRESS,
                 "REVIEWING": Document.Status.PENDING_APPROVAL,
                 "READY FOR MERGING": Document.Status.PENDING_APPROVAL,
+                "ON_HOLD": Document.Status.ON_HOLD,
             }
             mapped = status_map.get(status_filter.upper())
             if mapped:
                 qs = qs.filter(status=mapped)
         return qs
+
+    def create(self, request, *args, **kwargs):
+        upload = request.FILES.get("original_file")
+        force_duplicate = str(request.data.get("force_duplicate", "")).lower() in {"1", "true", "yes"}
+        if upload and not force_duplicate:
+            original_name = upload.name.strip()
+            base_title = original_name.rsplit(".", 1)[0]
+            dup = Document.objects.filter(
+                Q(original_file__icontains=original_name) | Q(title__iexact=base_title)
+            ).order_by("-uploaded_at")
+            if dup.exists():
+                latest = dup.first()
+                return Response(
+                    {
+                        "duplicate_detected": True,
+                        "detail": "Duplicate document name detected.",
+                        "existing_document_id": latest.id,
+                        "existing_uploaded_at": latest.uploaded_at,
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
+        return super().create(request, *args, **kwargs)
 
     def perform_create(self, serializer):
         document = serializer.save(uploaded_by=self.request.user)
@@ -114,6 +147,161 @@ class DocumentViewSet(viewsets.ModelViewSet):
     def assign(self, request, pk=None):
         assign_pages_task.delay(document_id=int(pk))
         return Response({"queued": True}, status=status.HTTP_202_ACCEPTED)
+
+    @action(detail=True, methods=["post"])
+    def hold(self, request, pk=None):
+        document = self.get_object()
+        document.is_on_hold = True
+        document.save(update_fields=["is_on_hold", "updated_at"])
+        document.pages.filter(
+            status__in=[
+                DocumentPage.Status.NOT_ASSIGNED,
+                DocumentPage.Status.ASSIGNED,
+                DocumentPage.Status.IN_PROGRESS,
+                DocumentPage.Status.REASSIGNED,
+            ]
+        ).update(
+            status=DocumentPage.Status.ON_HOLD,
+            is_on_hold=True,
+            assigned_to=None,
+            updated_at=timezone.now(),
+        )
+        update_document_status(document)
+        return Response({"status": "on_hold"})
+
+    @action(detail=True, methods=["post"])
+    def unhold(self, request, pk=None):
+        document = self.get_object()
+        document.is_on_hold = False
+        document.save(update_fields=["is_on_hold", "updated_at"])
+        document.pages.filter(status=DocumentPage.Status.ON_HOLD).update(
+            status=DocumentPage.Status.NOT_ASSIGNED,
+            is_on_hold=False,
+            assigned_to=None,
+            updated_at=timezone.now(),
+        )
+        update_document_status(document)
+        assign_pages_task.delay(document_id=document.id)
+        return Response({"status": "released"})
+
+    @action(detail=True, methods=["post"], url_path="hold-split")
+    def hold_split(self, request, pk=None):
+        document = self.get_object()
+        page_ids = request.data.get("page_ids") or []
+        rid = request.data.get("resource_profile_id")
+        qs = document.pages.all()
+        if page_ids:
+            qs = qs.filter(id__in=page_ids)
+        elif rid:
+            qs = qs.filter(assigned_to_id=rid)
+        else:
+            return Response({"detail": "page_ids or resource_profile_id is required"}, status=400)
+        updated = qs.filter(
+            status__in=[DocumentPage.Status.ASSIGNED, DocumentPage.Status.IN_PROGRESS, DocumentPage.Status.REASSIGNED]
+        ).update(
+            status=DocumentPage.Status.ON_HOLD,
+            is_on_hold=True,
+            assigned_to=None,
+            updated_at=timezone.now(),
+        )
+        update_document_status(document)
+        return Response({"updated": updated, "status": "split_on_hold"})
+
+    @action(detail=True, methods=["post"], url_path="reassign-split")
+    def reassign_split(self, request, pk=None):
+        document = self.get_object()
+        target_id = request.data.get("resource_profile_id")
+        page_ids = request.data.get("page_ids") or []
+        if not target_id or not page_ids:
+            return Response({"detail": "resource_profile_id and page_ids are required"}, status=400)
+        try:
+            target = ResourceProfile.objects.get(id=int(target_id))
+        except (ResourceProfile.DoesNotExist, ValueError):
+            return Response({"detail": "Invalid resource_profile_id"}, status=404)
+        pages = list(document.pages.filter(id__in=page_ids).order_by("page_number"))
+        now = timezone.now()
+        for page in pages:
+            if page.status == DocumentPage.Status.COMPLETED:
+                continue
+            page.assigned_to = target
+            page.assigned_at = now
+            page.is_on_hold = False
+            page.status = DocumentPage.Status.ASSIGNED
+            page.save(update_fields=["assigned_to", "assigned_at", "is_on_hold", "status", "updated_at"])
+        update_document_status(document)
+        return Response({"updated": len(pages), "status": "reassigned"})
+
+    @action(detail=True, methods=["post"], url_path="prioritize")
+    def prioritize(self, request, pk=None):
+        document = self.get_object()
+        resource_ids = request.data.get("resource_profile_ids") or []
+        if not resource_ids:
+            return Response({"detail": "resource_profile_ids is required"}, status=400)
+        resources = list(
+            ResourceProfile.objects.filter(id__in=resource_ids).order_by("id")
+        )
+        if not resources:
+            return Response(
+                {"detail": "No valid resources selected."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        now = timezone.now()
+        document.is_urgent = True
+        document.prioritized_at = now
+        document.is_on_hold = False
+        document.save(update_fields=["is_urgent", "prioritized_at", "is_on_hold", "updated_at"])
+
+        # If split pages do not exist yet (e.g., celery not running), create them now
+        # so urgent manual assignment can proceed immediately.
+        if not document.pages.exists():
+            try:
+                split_document_task(document.id)
+                document.refresh_from_db()
+            except Exception as exc:
+                return Response(
+                    {"detail": f"Unable to split document before priority assignment: {exc}"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+
+        pending_pages = list(
+            document.pages.filter(
+                status__in=[
+                    DocumentPage.Status.NOT_ASSIGNED,
+                    DocumentPage.Status.ASSIGNED,
+                    DocumentPage.Status.IN_PROGRESS,
+                    DocumentPage.Status.ON_HOLD,
+                    DocumentPage.Status.REASSIGNED,
+                ]
+            ).exclude(status=DocumentPage.Status.COMPLETED).order_by("page_number")
+        )
+        if not pending_pages:
+            update_document_status(document)
+            return Response(
+                {
+                    "updated": 0,
+                    "status": "prioritized",
+                    "detail": "No assignable pages found (already completed or unavailable).",
+                }
+            )
+        # Assign contiguous page blocks per resource (not alternating pages).
+        # Example: 132 pages, 2 resources => 1-66 to first, 67-132 to second.
+        total_pages = len(pending_pages)
+        resource_count = len(resources)
+        base = total_pages // resource_count
+        extra = total_pages % resource_count
+        start = 0
+        for idx, target in enumerate(resources):
+            take = base + (1 if idx < extra else 0)
+            end = start + take
+            for page in pending_pages[start:end]:
+                page.assigned_to = target
+                page.assigned_at = now
+                page.is_on_hold = False
+                page.status = DocumentPage.Status.ASSIGNED
+                page.save(update_fields=["assigned_to", "assigned_at", "is_on_hold", "status", "updated_at"])
+            start = end
+        update_document_status(document)
+        return Response({"updated": len(pending_pages), "status": "prioritized"})
 
     @action(detail=True, methods=["post"])
     def merge(self, request, pk=None):
@@ -439,7 +627,9 @@ def resource_work_bundles(request):
         stem = _bundle_file_stem(row["document_title"])
         did = row["document_id"]
         rid = row["resource_id"]
-        row["suggested_download_basename"] = f"{rid}_{did}_{stem}_B{did}"
+        rng = _page_range_suffix(row["page_numbers"])
+        row["suggested_download_basename"] = f"{rid}_{did}_{stem}_B{did}_{rng}"
+        row["suggested_upload_basename"] = f"{rid}_{did}_{stem}_B{did}_{rng}"
     return Response(rows)
 
 
@@ -519,6 +709,7 @@ def resource_bundle_download(request, document_id: int):
     profile = request.user.resource_profile
     stem = _bundle_file_stem(pages[0].document.title)
     bundle_id = f"B{document_id}"
+    range_suffix = _page_range_suffix([p.page_number for p in pages])
     all_pdf = all((page.split_file and page.split_file.name.lower().endswith(".pdf")) for page in pages)
 
     if all_pdf:
@@ -530,7 +721,7 @@ def resource_bundle_download(request, document_id: int):
                     writer.add_page(pdf_page)
         output = io.BytesIO()
         writer.write(output)
-        out_name = f"{profile.id}_{document_id}_{stem}_{bundle_id}.pdf"
+        out_name = f"{profile.id}_{document_id}_{stem}_{bundle_id}_{range_suffix}.pdf"
         response = HttpResponse(output.getvalue(), content_type="application/pdf")
         response["Content-Disposition"] = f'attachment; filename="{out_name}"'
         return response
@@ -543,7 +734,7 @@ def resource_bundle_download(request, document_id: int):
             with page.split_file.open("rb") as stream:
                 ext = page.split_file.name.rsplit(".", 1)[-1]
                 zf.writestr(f"page_{page.page_number}.{ext}", stream.read())
-    out_name = f"{profile.id}_{document_id}_{stem}_{bundle_id}.zip"
+    out_name = f"{profile.id}_{document_id}_{stem}_{bundle_id}_{range_suffix}.zip"
     response = HttpResponse(output.getvalue(), content_type="application/zip")
     response["Content-Disposition"] = f'attachment; filename="{out_name}"'
     return response
@@ -575,41 +766,19 @@ def resource_bundle_submit(request, document_id: int):
     if not (is_pdf or is_word):
         return Response({"detail": "Only PDF, DOC, or DOCX files are allowed."}, status=400)
 
-    if is_pdf:
-        reader = PdfReader(uploaded)
-        if len(reader.pages) != len(pages):
-            return Response(
-                {
-                    "detail": f"Uploaded PDF pages ({len(reader.pages)}) must equal assigned pages ({len(pages)}).",
-                },
-                status=400,
-            )
-        for idx, page in enumerate(pages):
-            writer = PdfWriter()
-            writer.add_page(reader.pages[idx])
-            buffer = io.BytesIO()
-            writer.write(buffer)
-            page.processed_file.save(
-                f"{document_id}_processed_page_{page.page_number}.pdf",
-                ContentFile(buffer.getvalue()),
-                save=False,
-            )
-            page.status = DocumentPage.Status.COMPLETED
-            page.submitted_at = timezone.now()
-            page.save(update_fields=["processed_file", "status", "submitted_at", "updated_at"])
-    else:
-        # Word upload is accepted as a bundled corrected artifact for assigned pages.
-        payload = uploaded.read()
-        ext = "docx" if filename.endswith(".docx") else "doc"
-        for page in pages:
-            page.processed_file.save(
-                f"{document_id}_processed_page_{page.page_number}.{ext}",
-                ContentFile(payload),
-                save=False,
-            )
-            page.status = DocumentPage.Status.COMPLETED
-            page.submitted_at = timezone.now()
-            page.save(update_fields=["processed_file", "status", "submitted_at", "updated_at"])
+    payload = uploaded.read()
+    ext = "pdf" if is_pdf else ("docx" if filename.endswith(".docx") else "doc")
+    range_suffix = _page_range_suffix([p.page_number for p in pages])
+    # Flexible handling: any uploaded page count marks this assigned split complete.
+    for page in pages:
+        page.processed_file.save(
+            f"{document_id}_processed_pages_{range_suffix}_page_{page.page_number}.{ext}",
+            ContentFile(payload),
+            save=False,
+        )
+        page.status = DocumentPage.Status.COMPLETED
+        page.submitted_at = timezone.now()
+        page.save(update_fields=["processed_file", "status", "submitted_at", "updated_at"])
 
     update_document_status(pages[0].document)
     assign_pages_task.delay()
@@ -619,6 +788,12 @@ def resource_bundle_submit(request, document_id: int):
 def _bundle_file_stem(document_title: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9_-]+", "_", document_title or "document").strip("_")
     return cleaned or "document"
+
+
+def _page_range_suffix(page_numbers: list[int]) -> str:
+    if not page_numbers:
+        return "0-0"
+    return f"{min(page_numbers)}-{max(page_numbers)}"
 
 
 @api_view(["GET"])
@@ -660,7 +835,8 @@ def automation_jobs(request):
     jobs = []
     for row in grouped.values():
         stem = _bundle_file_stem(row["filename"])
-        row["suggested_name_pdf"] = f"{row['resource_id']}_{row['job_id']}_{stem}_{row['bundle_id']}.pdf"
+        rng = _page_range_suffix(row["page_numbers"])
+        row["suggested_name_pdf"] = f"{row['resource_id']}_{row['job_id']}_{stem}_{row['bundle_id']}_{rng}.pdf"
         jobs.append(row)
     return Response(jobs)
 
@@ -693,6 +869,7 @@ def automation_job_download(request, job_id: int):
     all_pdf = all((page.split_file and page.split_file.name.lower().endswith(".pdf")) for page in pages)
     stem = _bundle_file_stem(pages[0].document.title)
     bundle_id = f"B{job_id}"
+    range_suffix = _page_range_suffix([p.page_number for p in pages])
     if all_pdf:
         writer = PdfWriter()
         for page in pages:
@@ -702,7 +879,7 @@ def automation_job_download(request, job_id: int):
                     writer.add_page(pdf_page)
         output = io.BytesIO()
         writer.write(output)
-        out_name = f"{profile.id}_{job_id}_{stem}_{bundle_id}.pdf"
+        out_name = f"{profile.id}_{job_id}_{stem}_{bundle_id}_{range_suffix}.pdf"
         response = HttpResponse(output.getvalue(), content_type="application/pdf")
         response["Content-Disposition"] = f'attachment; filename="{out_name}"'
         return response
@@ -715,7 +892,7 @@ def automation_job_download(request, job_id: int):
             with page.split_file.open("rb") as stream:
                 ext = page.split_file.name.rsplit(".", 1)[-1]
                 zf.writestr(f"page_{page.page_number}.{ext}", stream.read())
-    out_name = f"{profile.id}_{job_id}_{stem}_{bundle_id}.zip"
+    out_name = f"{profile.id}_{job_id}_{stem}_{bundle_id}_{range_suffix}.zip"
     response = HttpResponse(output.getvalue(), content_type="application/zip")
     response["Content-Disposition"] = f'attachment; filename="{out_name}"'
     return response
@@ -756,38 +933,18 @@ def automation_job_submit(request, job_id: int):
     if not (is_pdf or is_word):
         return Response({"detail": "Only PDF, DOC, or DOCX files are allowed."}, status=400)
 
-    if is_pdf:
-        reader = PdfReader(uploaded)
-        if len(reader.pages) != len(pages):
-            return Response(
-                {"detail": f"Uploaded PDF pages ({len(reader.pages)}) must equal assigned pages ({len(pages)})."},
-                status=400,
-            )
-        for idx, page in enumerate(pages):
-            writer = PdfWriter()
-            writer.add_page(reader.pages[idx])
-            buffer = io.BytesIO()
-            writer.write(buffer)
-            page.processed_file.save(
-                f"{job_id}_processed_page_{page.page_number}.pdf",
-                ContentFile(buffer.getvalue()),
-                save=False,
-            )
-            page.status = DocumentPage.Status.COMPLETED
-            page.submitted_at = timezone.now()
-            page.save(update_fields=["processed_file", "status", "submitted_at", "updated_at"])
-    else:
-        payload = uploaded.read()
-        ext = "docx" if filename.endswith(".docx") else "doc"
-        for page in pages:
-            page.processed_file.save(
-                f"{job_id}_processed_page_{page.page_number}.{ext}",
-                ContentFile(payload),
-                save=False,
-            )
-            page.status = DocumentPage.Status.COMPLETED
-            page.submitted_at = timezone.now()
-            page.save(update_fields=["processed_file", "status", "submitted_at", "updated_at"])
+    payload = uploaded.read()
+    ext = "pdf" if is_pdf else ("docx" if filename.endswith(".docx") else "doc")
+    range_suffix = _page_range_suffix([p.page_number for p in pages])
+    for page in pages:
+        page.processed_file.save(
+            f"{job_id}_processed_pages_{range_suffix}_page_{page.page_number}.{ext}",
+            ContentFile(payload),
+            save=False,
+        )
+        page.status = DocumentPage.Status.COMPLETED
+        page.submitted_at = timezone.now()
+        page.save(update_fields=["processed_file", "status", "submitted_at", "updated_at"])
 
     update_document_status(pages[0].document)
     assign_pages_task.delay()

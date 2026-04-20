@@ -39,6 +39,7 @@ class ResourceSerializer(serializers.ModelSerializer):
             "username",
             "email",
             "max_page_capacity",
+            "manual_upload_enabled",
             "is_active_session",
             "last_seen_at",
             "remaining_capacity",
@@ -54,6 +55,7 @@ class DocumentSerializer(serializers.ModelSerializer):
     created_at = serializers.DateTimeField(source="uploaded_at", read_only=True)
     assigned_resources = serializers.SerializerMethodField()
     merged_versions = serializers.SerializerMethodField()
+    available_resources = serializers.SerializerMethodField()
 
     class Meta:
         model = Document
@@ -70,7 +72,11 @@ class DocumentSerializer(serializers.ModelSerializer):
             "final_merged_file",
             "merged_at",
             "merged_revision",
+            "is_on_hold",
+            "is_urgent",
+            "prioritized_at",
             "merged_versions",
+            "available_resources",
             "assigned_resources",
         )
         read_only_fields = (
@@ -82,7 +88,11 @@ class DocumentSerializer(serializers.ModelSerializer):
             "final_merged_file",
             "merged_at",
             "merged_revision",
+            "is_on_hold",
+            "is_urgent",
+            "prioritized_at",
             "merged_versions",
+            "available_resources",
         )
         extra_kwargs = {"title": {"required": False, "allow_blank": True}}
 
@@ -119,15 +129,11 @@ class DocumentSerializer(serializers.ModelSerializer):
         return out
 
     def get_assigned_resources(self, obj: Document):
-        pages = (
-            obj.pages.select_related("assigned_to__user")
-            .filter(assigned_to__isnull=False)
-            .order_by("page_number")
-        )
+        pages = obj.pages.select_related("assigned_to__user").order_by("page_number")
         return [
             {
                 "id": p.id,
-                "username": p.assigned_to.user.username,
+                "username": p.assigned_to.user.username if p.assigned_to_id else "Unassigned",
                 "resource_profile_id": p.assigned_to_id,
                 "page_number": p.page_number,
                 "status": p.status,
@@ -137,8 +143,15 @@ class DocumentSerializer(serializers.ModelSerializer):
                 "download_started_at": p.download_started_at,
                 "submitted_at": p.submitted_at,
                 "processed_file": p.processed_file.url if p.processed_file else None,
+                "is_on_hold": p.is_on_hold,
             }
             for p in pages
+        ]
+
+    def get_available_resources(self, obj: Document):
+        return [
+            {"id": r.id, "username": r.user.username, "manual_upload_enabled": r.manual_upload_enabled}
+            for r in ResourceProfile.objects.select_related("user").order_by("user__username")
         ]
 
 
@@ -156,6 +169,7 @@ class DocumentPageSerializer(serializers.ModelSerializer):
             "split_file",
             "processed_file",
             "status",
+            "is_on_hold",
             "assigned_to",
             "assigned_to_username",
             "assigned_at",

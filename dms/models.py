@@ -19,6 +19,10 @@ class ResourceProfile(TimeStampedModel):
     max_page_capacity = models.PositiveIntegerField(default=10)
     is_active_session = models.BooleanField(default=False)
     last_seen_at = models.DateTimeField(null=True, blank=True)
+    manual_upload_enabled = models.BooleanField(
+        default=False,
+        help_text="When enabled, admin can manually assign held/reassigned jobs to this resource; auto-assignment skips this resource.",
+    )
 
     def __str__(self) -> str:
         return f"{self.user.username} ({self.max_page_capacity})"
@@ -60,6 +64,7 @@ class Document(TimeStampedModel):
         IN_PROGRESS = "IN_PROGRESS", "In Progress"
         COMPLETED = "COMPLETED", "Completed"
         PENDING_APPROVAL = "PENDING_APPROVAL", "Pending Approval"
+        ON_HOLD = "ON_HOLD", "On Hold"
 
     title = models.CharField(max_length=255)
     original_file = models.FileField(
@@ -78,6 +83,9 @@ class Document(TimeStampedModel):
         default=0,
         help_text="Current merged file version number (v1, v2, …). Increments on each merge or correction upload.",
     )
+    is_on_hold = models.BooleanField(default=False)
+    is_urgent = models.BooleanField(default=False)
+    prioritized_at = models.DateTimeField(null=True, blank=True)
 
     def __str__(self) -> str:
         return self.title
@@ -108,6 +116,8 @@ class DocumentPage(TimeStampedModel):
         IN_PROGRESS = "IN_PROGRESS", "In Progress"
         COMPLETED = "COMPLETED", "Completed"
         PENDING_APPROVAL = "PENDING_APPROVAL", "Pending Approval"
+        ON_HOLD = "ON_HOLD", "On Hold"
+        REASSIGNED = "REASSIGNED", "Reassigned"
 
     document = models.ForeignKey(Document, on_delete=models.CASCADE, related_name="pages")
     page_number = models.PositiveIntegerField()
@@ -120,6 +130,7 @@ class DocumentPage(TimeStampedModel):
     assigned_at = models.DateTimeField(null=True, blank=True)
     download_started_at = models.DateTimeField(null=True, blank=True)
     submitted_at = models.DateTimeField(null=True, blank=True)
+    is_on_hold = models.BooleanField(default=False)
 
     class Meta:
         unique_together = ("document", "page_number")
