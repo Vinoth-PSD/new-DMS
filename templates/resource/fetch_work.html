@@ -12,10 +12,16 @@
             <p class="text-muted">Process your assigned page blocks.</p>
             <p class="text-muted small" style="margin-top: 0.5rem;">
                 <strong>Process</strong> downloads use this pattern:
-                <code>resourceid_jobid_title_Bjobid.pdf</code> (or <code>.zip</code> if pages are not all PDF).
+                <code>resourceid_jobid_title_Bjobid_min-max.pdf</code> (or <code>.zip</code> if pages are not all PDF).
                 Point your browser download folder at the tray <code>download_folder</code>; saving that file there lets the tray learn your resource id and open ABBYY.
             </p>
             <p id="tray-resource-banner" class="alert alert-secondary small py-2 px-3 mb-0 mt-2" style="display: none; max-width: 52rem;"></p>
+        </div>
+        <div style="margin-right: 1rem;">
+            <a href="/api/resource/work/tray-package/" class="btn btn-sm"
+               style="background:#1a3c6e; color:#fff; font-weight:700; padding:10px 14px; border-radius:6px; text-decoration:none;">
+                Download Tray App ZIP
+            </a>
         </div>
     </div>
 
@@ -93,8 +99,9 @@
         }
 
         assignmentsContainer.innerHTML = assignments.map((a) => {
-            const processUrl = `/api/resource/work/bundles/${a.document_id}/download/`;
-            const submitUrl = `/api/resource/work/bundles/${a.document_id}/submit/`;
+            const bundleId = encodeURIComponent(a.bundle_id || '');
+            const processUrl = `/api/resource/work/bundles/${a.document_id}/download/?bundle_id=${bundleId}`;
+            const submitUrl = `/api/resource/work/bundles/${a.document_id}/submit/?bundle_id=${bundleId}`;
             const statusPill = a.status === 'IN_PROGRESS'
                 ? '<span class="badge bg-warning text-dark">IN_PROGRESS</span>'
                 : '<span class="badge bg-info text-dark">ASSIGNED</span>';

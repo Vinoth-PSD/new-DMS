@@ -6,3 +6,5 @@ redis>=5.0
 python-docx>=1.1
 docxcompose>=1.4
 pypdf>=4.2
+paramiko>=3.4
+PyMySQL>=1.1

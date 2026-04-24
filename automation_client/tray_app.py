@@ -24,6 +24,8 @@ import json
 import logging
 import os
 import re
+import shutil
+import csv
 import subprocess
 import sys
 import threading
@@ -64,6 +66,45 @@ def setup_logging() -> None:
     )
 
 
+def ensure_single_instance_windows() -> None:
+    """
+    Best-effort guard for thin-client sessions:
+    terminate older DocProResourceTray.exe processes running under current user/session.
+    """
+    if sys.platform != "win32":
+        return
+    exe_name = Path(sys.executable).name if getattr(sys, "frozen", False) else "python.exe"
+    current_pid = os.getpid()
+    try:
+        proc = subprocess.run(
+            ["tasklist", "/V", "/FO", "CSV", "/FI", f"IMAGENAME eq {exe_name}"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        out = (proc.stdout or "").strip()
+        if not out:
+            return
+        rows = list(csv.reader(out.splitlines()))
+        # rows: Image Name, PID, Session Name, Session#, Mem Usage, Status, User Name, CPU Time, Window Title
+        for row in rows:
+            if len(row) < 3:
+                continue
+            try:
+                pid = int(row[1])
+            except Exception:
+                continue
+            if pid == current_pid:
+                continue
+            try:
+                subprocess.run(["taskkill", "/PID", str(pid), "/F"], check=False, capture_output=True, text=True)
+                logging.info("[SINGLETON] terminated older tray instance pid=%s", pid)
+            except Exception:
+                pass
+    except Exception as exc:
+        logging.warning("[SINGLETON] failed: %s", exc)
+
+
 def _fatal_msg(msg: str) -> None:
     logging.error(msg)
     if getattr(sys, "frozen", False) and sys.platform == "win32":
@@ -101,11 +142,32 @@ def parse_runtime_config(raw: dict) -> dict:
 
     md = (raw.get("merged_download_folder") or raw.get("mergedDownloadFolder") or "").strip()
     merged_dir = Path(md) if md else Path(dl)
+    resource_name_raw = (raw.get("resource_name") or raw.get("resourceName") or "").strip()
+    if not resource_name_raw:
+        # Auto profile key: currently logged-in system user
+        user = (os.environ.get("USERNAME") or os.environ.get("USER") or "user").strip()
+        resource_name_raw = user
+    resource_name = re.sub(r"[^A-Za-z0-9._-]+", "_", resource_name_raw).strip("._-") or "resource"
+    isolate_user_folders = bool(raw.get("isolate_user_folders", True))
+    resource_id_raw = raw.get("resource_id")
+    resource_id = int(resource_id_raw) if str(resource_id_raw or "").strip().isdigit() else None
+
+    if isolate_user_folders:
+        dl_final = Path(dl) / resource_name / "download"
+        ul_final = Path(ul) / resource_name / "upload"
+        # Admin merged corrections are handled centrally by admin; keep one common folder.
+        merged_final = Path(md) if md else (Path(dl) / "merged_downloads")
+        completed_final = Path(ul) / resource_name / "completed_files"
+    else:
+        dl_final = Path(dl)
+        ul_final = Path(ul)
+        merged_final = Path(md) if md else merged_dir
+        completed_final = Path(ul) / "completed_files"
 
     return {
         "base_url": base_url,
-        "download_folder": Path(dl),
-        "upload_folder": Path(ul),
+        "download_folder": dl_final,
+        "upload_folder": ul_final,
         "poll_seconds": int(raw.get("poll_seconds", 5)),
         "watch_seconds": int(raw.get("watch_seconds", 2)),
         "abbyy_exe_path": (raw.get("abbyy_exe_path") or raw.get("abbyyExePath") or "").strip(),
@@ -113,8 +175,12 @@ def parse_runtime_config(raw: dict) -> dict:
         "process_triggered_open_only": bool(raw.get("process_triggered_open_only", True)),
         "admin_automation_enabled": bool(raw.get("admin_automation_enabled", False)),
         "admin_automation_key": (raw.get("admin_automation_key") or raw.get("adminAutomationKey") or "").strip(),
-        "merged_download_folder": merged_dir,
+        "merged_download_folder": merged_final,
+        "completed_folder": completed_final,
         "open_merged_in_word": bool(raw.get("open_merged_in_word", True)),
+        "resource_name": resource_name,
+        "resource_id": resource_id,
+        "isolate_user_folders": isolate_user_folders,
     }
 
 
@@ -130,19 +196,26 @@ class ResourceTrayApp:
         self.admin_automation_enabled = cfg.get("admin_automation_enabled", False)
         self.admin_automation_key = cfg.get("admin_automation_key", "")
         self.merged_download_dir: Path = cfg["merged_download_folder"]
+        self.completed_dir: Path = cfg["completed_folder"]
         self.open_merged_in_word = cfg.get("open_merged_in_word", True)
+        self.resource_name = cfg.get("resource_name", "resource")
+        self.resource_id = cfg.get("resource_id")
 
         self.session = requests.Session()
         self.running = True
         self.uploaded_paths: set[str] = set()
         self.upload_failures: dict[str, int] = {}
         self.seen_download_paths: set[str] = set()
+        self.archived_download_paths: set[str] = set()
         self.seen_merged_paths: set[str] = set()
         self.merged_states: dict[str, dict] = {}
 
         self.download_dir.mkdir(parents=True, exist_ok=True)
         self.upload_dir.mkdir(parents=True, exist_ok=True)
         self.merged_download_dir.mkdir(parents=True, exist_ok=True)
+        self.completed_dir.mkdir(parents=True, exist_ok=True)
+        self.past_downloads_dir = self.download_dir.parent / "past_downloads"
+        self.past_downloads_dir.mkdir(parents=True, exist_ok=True)
         for existing in self.download_dir.iterdir():
             if existing.is_file():
                 self.seen_download_paths.add(str(existing.resolve()))
@@ -151,10 +224,13 @@ class ResourceTrayApp:
                 self.seen_merged_paths.add(str(existing.resolve()))
 
         logging.info(
-            "[START] base_url=%s download=%s upload=%s merged_dl=%s admin_merged=%s mode=process-triggered",
+            "[START] base_url=%s resource=%s resource_id=%s download=%s upload=%s completed=%s merged_dl=%s admin_merged=%s mode=process-triggered",
             self.base_url,
+            self.resource_name,
+            self.resource_id,
             self.download_dir,
             self.upload_dir,
+            self.completed_dir,
             self.merged_download_dir,
             bool(self.admin_automation_enabled and self.admin_automation_key),
         )
@@ -315,19 +391,50 @@ class ResourceTrayApp:
     def upload_one(self, path: Path, parsed: dict) -> None:
         full = str(path.resolve())
         resource_id = int(parsed["resourceid"])
+        if self.resource_id is not None and resource_id != int(self.resource_id):
+            logging.info("[UPLOAD] skip (resource mismatch) file=%s file_rid=%s cfg_rid=%s", path.name, resource_id, self.resource_id)
+            return
         job_id = int(parsed["jobid"])
         url = f"{self.base_url}/api/automation/jobs/{job_id}/submit/"
         with path.open("rb") as fh:
             resp = self.session.post(
                 url,
                 files={"processed_file": (path.name, fh)},
-                data={"resource_id": str(resource_id)},
+                data={"resource_id": str(resource_id), "bundle_id": str(parsed.get("bundleid") or "")},
                 timeout=180,
             )
         if resp.ok:
             logging.info("[UPLOAD] ok %s", path.name)
             self.uploaded_paths.add(full)
             self.upload_failures.pop(full, None)
+            try:
+                target = self.completed_dir / path.name
+                if target.exists():
+                    stamp = int(time.time())
+                    target = self.completed_dir / f"{path.stem}_{stamp}{path.suffix}"
+                shutil.move(str(path), str(target))
+                logging.info("[UPLOAD] moved to completed_files -> %s", target.name)
+            except Exception as exc:
+                logging.warning("[UPLOAD] completed_files move failed for %s: %s", path.name, exc)
+            try:
+                prefix = f"{resource_id}_{job_id}_"
+                for dl in self.download_dir.iterdir():
+                    if not dl.is_file():
+                        continue
+                    dl_full = str(dl.resolve())
+                    if dl_full in self.archived_download_paths:
+                        continue
+                    if not dl.name.startswith(prefix):
+                        continue
+                    target = self.past_downloads_dir / dl.name
+                    if target.exists():
+                        stamp = int(time.time())
+                        target = self.past_downloads_dir / f"{dl.stem}_{stamp}{dl.suffix}"
+                    shutil.move(str(dl), str(target))
+                    self.archived_download_paths.add(dl_full)
+                    logging.info("[UPLOAD] moved download to past_downloads -> %s", target.name)
+            except Exception as exc:
+                logging.warning("[UPLOAD] failed to archive downloaded file for %s: %s", path.name, exc)
             return
 
         logging.error("[UPLOAD] fail %s -> %s %s", path.name, resp.status_code, resp.text)
@@ -351,6 +458,16 @@ class ResourceTrayApp:
             if not m:
                 self.seen_download_paths.add(full)
                 continue
+            if self.resource_id is not None:
+                try:
+                    rid = int(m.group(1))
+                except Exception:
+                    self.seen_download_paths.add(full)
+                    continue
+                if rid != int(self.resource_id):
+                    # Ignore files for other resources to prevent cross-session opening.
+                    self.seen_download_paths.add(full)
+                    continue
             time.sleep(0.6)
             if not p.is_file():
                 continue
@@ -407,6 +524,7 @@ def tray_icon(app: ResourceTrayApp) -> pystray.Icon:
 def main() -> None:
     setup_logging()
     try:
+        ensure_single_instance_windows()
         raw = load_json_config()
         cfg = parse_runtime_config(raw)
         app = ResourceTrayApp(cfg)

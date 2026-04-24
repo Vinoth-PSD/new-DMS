@@ -80,8 +80,8 @@ STATICFILES_DIRS = [BASE_DIR / "static"]
 MEDIA_URL = "/media/"
 MEDIA_ROOT = "/opt/dms/app/media"
 
-print("BASE_DIR:", BASE_DIR)
-print("MEDIA_ROOT:", MEDIA_ROOT)
+# print("BASE_DIR:", BASE_DIR)
+# print("MEDIA_ROOT:", MEDIA_ROOT)
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 LOGIN_URL = "/login/"
@@ -99,3 +99,16 @@ REST_FRAMEWORK = {
 
 CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://127.0.0.1:6379/0")
 CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", CELERY_BROKER_URL)
+
+# External cleanup integration (SFTP + MySQL metadata source)
+SFTP_HOST = os.getenv("SFTP_HOST", "")
+SFTP_PORT = int(os.getenv("SFTP_PORT", "22"))
+SFTP_USERNAME = os.getenv("SFTP_USERNAME", "")
+SFTP_PASSWORD = os.getenv("SFTP_PASSWORD", "")
+
+
+EXTERNAL_MYSQL_HOST = os.getenv("EXTERNAL_MYSQL_HOST", "54.254.14.255")
+EXTERNAL_MYSQL_PORT = int(os.getenv("EXTERNAL_MYSQL_PORT", "3306"))
+EXTERNAL_MYSQL_USER = os.getenv("EXTERNAL_MYSQL_USER", "xbuser")
+EXTERNAL_MYSQL_PASSWORD = os.getenv("EXTERNAL_MYSQL_PASSWORD", "Xberra@4%6")
+EXTERNAL_MYSQL_DB = os.getenv("EXTERNAL_MYSQL_DB", "xb_sg")

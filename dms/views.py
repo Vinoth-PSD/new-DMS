@@ -3,9 +3,11 @@ import mimetypes
 import zipfile
 import re
 import hashlib
+import json
 from datetime import date
 from pathlib import Path
 from urllib.parse import quote
+from django.conf import settings
 from django.db.models import Count, Q
 from django.utils import timezone
 from django.contrib.auth.models import User
@@ -21,6 +23,11 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from pypdf import PdfReader, PdfWriter
 from .models import AuditLog, Document, DocumentPage, ResourceProfile
+from .external_cleanup import (
+    build_cleanup_filename,
+    fetch_latest_job_input,
+    upload_to_cleanup_dir,
+)
 from .merged_versioning import finalize_merged_output, suggested_merged_download_filename
 from .permissions import IsResourceUser, IsStaffAdmin, IsStaffAdminOrAutomationKey
 from .serializers import (
@@ -31,6 +38,37 @@ from .serializers import (
 )
 from .services import mark_download_started, update_document_status
 from .tasks import assign_pages_task, merge_document_task, split_document_task
+
+
+def _merge_docx_payloads(parts: list[bytes]) -> bytes:
+    from docx import Document as DocxDocument
+    from docxcompose.composer import Composer
+
+    master = DocxDocument(io.BytesIO(parts[0]))
+    composer = Composer(master)
+    for payload in parts[1:]:
+        composer.append(DocxDocument(io.BytesIO(payload)))
+    out = io.BytesIO()
+    composer.save(out)
+    return out.getvalue()
+
+
+def _validate_processed_upload(document: Document, filename: str) -> tuple[str, str | None]:
+    lowered = (filename or "").lower()
+    is_pdf = lowered.endswith(".pdf")
+    is_docx = lowered.endswith(".docx")
+    is_doc = lowered.endswith(".doc")
+    if not (is_pdf or is_docx or is_doc):
+        return "", "Only PDF, DOCX, or DOC files are allowed."
+    if document.file_type == Document.FileType.DOCX:
+        if not is_docx:
+            return "", "This document must be uploaded as .docx only."
+        return "docx", None
+    if document.file_type == Document.FileType.PDF:
+        if not is_pdf:
+            return "", "This document must be uploaded as .pdf only."
+        return "pdf", None
+    return ("pdf" if is_pdf else ("docx" if is_docx else "doc")), None
 
 
 
@@ -221,13 +259,23 @@ class DocumentViewSet(viewsets.ModelViewSet):
         pages = list(document.pages.filter(id__in=page_ids).order_by("page_number"))
         now = timezone.now()
         for page in pages:
-            if page.status == DocumentPage.Status.COMPLETED:
-                continue
             page.assigned_to = target
             page.assigned_at = now
             page.is_on_hold = False
             page.status = DocumentPage.Status.ASSIGNED
-            page.save(update_fields=["assigned_to", "assigned_at", "is_on_hold", "status", "updated_at"])
+            page.submitted_at = None
+            page.download_started_at = None
+            page.save(
+                update_fields=[
+                    "assigned_to",
+                    "assigned_at",
+                    "is_on_hold",
+                    "status",
+                    "submitted_at",
+                    "download_started_at",
+                    "updated_at",
+                ]
+            )
         update_document_status(document)
         return Response({"updated": len(pages), "status": "reassigned"})
 
@@ -307,6 +355,70 @@ class DocumentViewSet(viewsets.ModelViewSet):
     def merge(self, request, pk=None):
         result = merge_document_task(document_id=int(pk))
         return Response(result, status=status.HTTP_200_OK if result.get("merged") else status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=["post"], url_path="cleanup-done")
+    def cleanup_done(self, request, pk=None):
+        """
+        Pull latest source file for the job from SFTP (resolved via MySQL pl_job_file_user),
+        then upload merged output to the same job's 2 Cleanup folder on SFTP.
+        """
+        document = self.get_object()
+        job_name = (request.data.get("job_name") or "").strip()
+        if not job_name:
+            title = (document.title or "").strip()
+            # default extraction from names like "XBSG1_something..."
+            job_name = (title.split("_", 1)[0] or title).strip()
+        if not job_name:
+            return Response({"detail": "job_name is required."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            picked = fetch_latest_job_input(job_name)
+        except Exception as exc:
+            return Response({"detail": f"Failed to fetch latest input from SFTP/MySQL: {exc}"}, status=400)
+
+        if document.final_merged_file and document.final_merged_file.name:
+            with document.final_merged_file.open("rb") as stream:
+                payload = stream.read()
+            ext = Path(document.final_merged_file.name).suffix.lower() or ".pdf"
+            source_mode = "document_final_merged_file"
+        else:
+            payload = picked.source_payload
+            ext = Path(picked.selected_source_file).suffix.lower() or ".pdf"
+            source_mode = "latest_input_file_fallback"
+
+        out_name = build_cleanup_filename(job_name, ext)
+        try:
+            uploaded_remote = upload_to_cleanup_dir(picked.cleanup_dir, out_name, payload)
+        except Exception as exc:
+            return Response({"detail": f"Failed to upload cleanup file to SFTP: {exc}"}, status=400)
+
+        AuditLog.objects.create(
+            action=AuditLog.Action.MERGE_DOC,
+            document=document,
+            actor=request.user if request.user.is_authenticated else None,
+            metadata={
+                "source": "cleanup_done",
+                "job_name": job_name,
+                "db_path": picked.db_path,
+                "input_base_dir": picked.input_base_dir,
+                "selected_source_dir": picked.selected_source_dir,
+                "selected_source_file": picked.selected_source_file,
+                "selected_version": picked.selected_version,
+                "cleanup_dir": picked.cleanup_dir,
+                "cleanup_file": uploaded_remote,
+                "payload_mode": source_mode,
+            },
+        )
+        return Response(
+            {
+                "status": "ok",
+                "job_name": job_name,
+                "selected_version": picked.selected_version,
+                "selected_source_file": picked.selected_source_file,
+                "cleanup_dir": picked.cleanup_dir,
+                "cleanup_file": uploaded_remote,
+                "payload_mode": source_mode,
+            }
+        )
 
     @action(detail=True, methods=["get"], url_path="download-final")
     def download_final(self, request, pk=None):
@@ -527,6 +639,9 @@ class ResourceWorkViewSet(
         processed_file = request.FILES.get("processed_file")
         if not processed_file:
             return Response({"detail": "processed_file is required"}, status=400)
+        _, err = _validate_processed_upload(page.document, processed_file.name)
+        if err:
+            return Response({"detail": err}, status=400)
 
         page.processed_file = processed_file
         page.status = DocumentPage.Status.COMPLETED
@@ -606,11 +721,17 @@ def resource_work_bundles(request):
         .select_related("document")
         .order_by("document_id", "page_number")
     )
-    grouped = {}
+    rows = []
+    current = None
     for page in pages:
-        key = page.document_id
-        if key not in grouped:
-            grouped[key] = {
+        if (
+            current is None
+            or current["document_id"] != page.document_id
+            or current["page_numbers"][-1] + 1 != page.page_number
+        ):
+            if current is not None:
+                rows.append(current)
+            current = {
                 "document_id": page.document_id,
                 "document_title": page.document.title,
                 "resource_id": request.user.resource_profile.id,
@@ -618,18 +739,21 @@ def resource_work_bundles(request):
                 "page_numbers": [],
                 "pages_assigned": 0,
             }
-        grouped[key]["page_numbers"].append(page.page_number)
-        grouped[key]["pages_assigned"] += 1
+        current["page_numbers"].append(page.page_number)
+        current["pages_assigned"] += 1
         if page.status == DocumentPage.Status.IN_PROGRESS:
-            grouped[key]["status"] = DocumentPage.Status.IN_PROGRESS
-    rows = list(grouped.values())
+            current["status"] = DocumentPage.Status.IN_PROGRESS
+    if current is not None:
+        rows.append(current)
     for row in rows:
         stem = _bundle_file_stem(row["document_title"])
         did = row["document_id"]
         rid = row["resource_id"]
+        bid = _bundle_id_for_pages(did, row["page_numbers"])
         rng = _page_range_suffix(row["page_numbers"])
-        row["suggested_download_basename"] = f"{rid}_{did}_{stem}_B{did}_{rng}"
-        row["suggested_upload_basename"] = f"{rid}_{did}_{stem}_B{did}_{rng}"
+        row["bundle_id"] = bid
+        row["suggested_download_basename"] = f"{rid}_{did}_{stem}_{bid}_{rng}"
+        row["suggested_upload_basename"] = f"{rid}_{did}_{stem}_{bid}_{rng}"
     return Response(rows)
 
 
@@ -693,13 +817,18 @@ def resource_history_bundles(request):
 @api_view(["GET"])
 @permission_classes([IsResourceUser])
 def resource_bundle_download(request, document_id: int):
-    pages = list(
-        DocumentPage.objects.filter(
+    qs = DocumentPage.objects.filter(
             document_id=document_id,
             assigned_to=request.user.resource_profile,
             status__in=[DocumentPage.Status.ASSIGNED, DocumentPage.Status.IN_PROGRESS],
-        ).order_by("page_number")
     )
+    bundle_id = (request.query_params.get("bundle_id") or "").strip()
+    if bundle_id:
+        start, end = _bundle_range_from_id(bundle_id, document_id)
+        if start is None:
+            return Response({"detail": "Invalid bundle_id"}, status=400)
+        qs = qs.filter(page_number__gte=start, page_number__lte=end)
+    pages = list(qs.order_by("page_number"))
     if not pages:
         return Response({"detail": "No assigned pages for this document"}, status=404)
 
@@ -708,7 +837,7 @@ def resource_bundle_download(request, document_id: int):
 
     profile = request.user.resource_profile
     stem = _bundle_file_stem(pages[0].document.title)
-    bundle_id = f"B{document_id}"
+    bundle_id = bundle_id or _bundle_id_for_pages(document_id, [p.page_number for p in pages])
     range_suffix = _page_range_suffix([p.page_number for p in pages])
     all_pdf = all((page.split_file and page.split_file.name.lower().endswith(".pdf")) for page in pages)
 
@@ -748,26 +877,27 @@ def resource_bundle_submit(request, document_id: int):
     if not uploaded:
         return Response({"detail": "processed_file is required"}, status=400)
 
-    pages = list(
-        DocumentPage.objects.select_for_update()
-        .filter(
+    qs = (
+        DocumentPage.objects.select_for_update().filter(
             document_id=document_id,
             assigned_to=request.user.resource_profile,
             status__in=[DocumentPage.Status.ASSIGNED, DocumentPage.Status.IN_PROGRESS],
         )
-        .order_by("page_number")
     )
+    bundle_id = (request.data.get("bundle_id") or request.query_params.get("bundle_id") or "").strip()
+    if bundle_id:
+        start, end = _bundle_range_from_id(bundle_id, document_id)
+        if start is None:
+            return Response({"detail": "Invalid bundle_id"}, status=400)
+        qs = qs.filter(page_number__gte=start, page_number__lte=end)
+    pages = list(qs.order_by("page_number"))
     if not pages:
         return Response({"detail": "No assigned pages for this document"}, status=404)
 
-    filename = uploaded.name.lower()
-    is_pdf = filename.endswith(".pdf")
-    is_word = filename.endswith(".docx") or filename.endswith(".doc")
-    if not (is_pdf or is_word):
-        return Response({"detail": "Only PDF, DOC, or DOCX files are allowed."}, status=400)
-
+    ext, err = _validate_processed_upload(pages[0].document, uploaded.name)
+    if err:
+        return Response({"detail": err}, status=400)
     payload = uploaded.read()
-    ext = "pdf" if is_pdf else ("docx" if filename.endswith(".docx") else "doc")
     range_suffix = _page_range_suffix([p.page_number for p in pages])
     # Flexible handling: any uploaded page count marks this assigned split complete.
     for page in pages:
@@ -796,6 +926,83 @@ def _page_range_suffix(page_numbers: list[int]) -> str:
     return f"{min(page_numbers)}-{max(page_numbers)}"
 
 
+def _bundle_id_for_pages(document_id: int, page_numbers: list[int]) -> str:
+    if not page_numbers:
+        return f"B{document_id}P0-0"
+    return f"B{document_id}P{min(page_numbers)}-{max(page_numbers)}"
+
+
+def _bundle_range_from_id(bundle_id: str, expected_document_id: int) -> tuple[int, int] | tuple[None, None]:
+    if not bundle_id:
+        return None, None
+    m = re.match(r"^B(?P<doc>\d+)P(?P<start>\d+)-(?P<end>\d+)$", bundle_id.strip(), re.IGNORECASE)
+    if not m:
+        return None, None
+    try:
+        doc = int(m.group("doc"))
+        start = int(m.group("start"))
+        end = int(m.group("end"))
+    except Exception:
+        return None, None
+    if doc != int(expected_document_id):
+        return None, None
+    return min(start, end), max(start, end)
+
+
+@api_view(["GET"])
+@permission_classes([IsResourceUser])
+def resource_tray_package(request):
+    """
+    Build a per-resource tray package zip:
+    - DocProResourceTray.exe
+    - config.json (resource_id embedded)
+    - Install_or_Update_Tray.bat (kills old tray then starts new)
+    """
+    profile = request.user.resource_profile
+    base_dir = Path(getattr(settings, "BASE_DIR"))
+    dist_dir = base_dir / "automation_client" / "dist"
+    exe_path = dist_dir / "DocProResourceTray.exe"
+    if not exe_path.exists():
+        return Response({"detail": "Tray EXE is not available on server. Build and deploy it first."}, status=404)
+
+    base_url = request.build_absolute_uri("/").rstrip("/")
+    cfg = {
+        "base_url": base_url,
+        "download_folder": r"C:\DocPro\downloads",
+        "upload_folder": r"C:\DocPro\upload",
+        "resource_name": "",
+        "resource_id": int(profile.id),
+        "isolate_user_folders": True,
+        "poll_seconds": 5,
+        "watch_seconds": 2,
+        "abbyy_exe_path": "",
+        "process_triggered_open_only": True,
+        "admin_automation_enabled": False,
+        "admin_automation_key": "",
+        "merged_download_folder": r"C:\DocPro\merged",
+        "open_merged_in_word": True,
+    }
+    cfg_bytes = (json.dumps(cfg, indent=2) + "\n").encode("utf-8")
+    launcher = (
+        "@echo off\r\n"
+        "setlocal\r\n"
+        "for /f \"skip=1 tokens=2 delims=,\" %%P in ('tasklist /fo csv /nh /fi \"imagename eq DocProResourceTray.exe\"') do taskkill /pid %%~P /f >nul 2>nul\r\n"
+        "timeout /t 1 /nobreak >nul\r\n"
+        "start \"\" \"%~dp0DocProResourceTray.exe\"\r\n"
+        "exit /b 0\r\n"
+    ).encode("utf-8")
+
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.write(exe_path, arcname="DocProResourceTray.exe")
+        zf.writestr("config.json", cfg_bytes)
+        zf.writestr("Install_or_Update_Tray.bat", launcher)
+    out_name = f"DocPro_Tray_Resource_{profile.id}.zip"
+    response = HttpResponse(output.getvalue(), content_type="application/zip")
+    response["Content-Disposition"] = f'attachment; filename="{out_name}"'
+    return response
+
+
 @api_view(["GET"])
 @authentication_classes([])
 @permission_classes([AllowAny])
@@ -816,28 +1023,33 @@ def automation_jobs(request):
         .select_related("document")
         .order_by("document_id", "page_number")
     )
-    grouped = {}
+    jobs = []
+    current = None
     for page in pages:
-        key = page.document_id
-        if key not in grouped:
-            grouped[key] = {
+        if (
+            current is None
+            or current["job_id"] != page.document_id
+            or current["page_numbers"][-1] + 1 != page.page_number
+        ):
+            if current is not None:
+                jobs.append(current)
+            current = {
                 "resource_id": profile.id,
                 "job_id": page.document_id,
-                "bundle_id": f"B{page.document_id}",
                 "filename": page.document.title,
                 "status": page.status,
                 "page_numbers": [],
             }
-        grouped[key]["page_numbers"].append(page.page_number)
+        current["page_numbers"].append(page.page_number)
         if page.status == DocumentPage.Status.IN_PROGRESS:
-            grouped[key]["status"] = DocumentPage.Status.IN_PROGRESS
-
-    jobs = []
-    for row in grouped.values():
+            current["status"] = DocumentPage.Status.IN_PROGRESS
+    if current is not None:
+        jobs.append(current)
+    for row in jobs:
+        row["bundle_id"] = _bundle_id_for_pages(row["job_id"], row["page_numbers"])
         stem = _bundle_file_stem(row["filename"])
         rng = _page_range_suffix(row["page_numbers"])
         row["suggested_name_pdf"] = f"{row['resource_id']}_{row['job_id']}_{stem}_{row['bundle_id']}_{rng}.pdf"
-        jobs.append(row)
     return Response(jobs)
 
 
@@ -853,13 +1065,18 @@ def automation_job_download(request, job_id: int):
     except (ValueError, ResourceProfile.DoesNotExist):
         return Response({"detail": "Invalid resource_id"}, status=404)
 
-    pages = list(
-        DocumentPage.objects.filter(
+    qs = DocumentPage.objects.filter(
             document_id=job_id,
             assigned_to=profile,
             status__in=[DocumentPage.Status.ASSIGNED, DocumentPage.Status.IN_PROGRESS],
-        ).order_by("page_number")
     )
+    bundle_id = (request.query_params.get("bundle_id") or "").strip()
+    if bundle_id:
+        start, end = _bundle_range_from_id(bundle_id, job_id)
+        if start is None:
+            return Response({"detail": "Invalid bundle_id"}, status=400)
+        qs = qs.filter(page_number__gte=start, page_number__lte=end)
+    pages = list(qs.order_by("page_number"))
     if not pages:
         return Response({"detail": "No assigned pages for this job"}, status=404)
 
@@ -868,7 +1085,7 @@ def automation_job_download(request, job_id: int):
 
     all_pdf = all((page.split_file and page.split_file.name.lower().endswith(".pdf")) for page in pages)
     stem = _bundle_file_stem(pages[0].document.title)
-    bundle_id = f"B{job_id}"
+    bundle_id = bundle_id or _bundle_id_for_pages(job_id, [p.page_number for p in pages])
     range_suffix = _page_range_suffix([p.page_number for p in pages])
     if all_pdf:
         writer = PdfWriter()
@@ -915,15 +1132,20 @@ def automation_job_submit(request, job_id: int):
     if not uploaded:
         return Response({"detail": "processed_file is required"}, status=400)
 
-    pages = list(
-        DocumentPage.objects.select_for_update()
-        .filter(
+    qs = (
+        DocumentPage.objects.select_for_update().filter(
             document_id=job_id,
             assigned_to=profile,
             status__in=[DocumentPage.Status.ASSIGNED, DocumentPage.Status.IN_PROGRESS],
         )
-        .order_by("page_number")
     )
+    bundle_id = (request.data.get("bundle_id") or request.query_params.get("bundle_id") or "").strip()
+    if bundle_id:
+        start, end = _bundle_range_from_id(bundle_id, job_id)
+        if start is None:
+            return Response({"detail": "Invalid bundle_id"}, status=400)
+        qs = qs.filter(page_number__gte=start, page_number__lte=end)
+    pages = list(qs.order_by("page_number"))
     if not pages:
         return Response({"detail": "No assigned pages for this job"}, status=404)
 

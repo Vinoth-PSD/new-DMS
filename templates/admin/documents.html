@@ -1095,12 +1095,19 @@
 
             actions += `
             <button id="download-btn-${doc.id}" onclick="event.stopPropagation(); downloadDocument('${doc.id}')" class="ac-btn ${downloadBtnClass}" style="${downloadBtnDisabled}">Download</button>
-            <button onclick="event.stopPropagation(); prioritizeJob('${doc.id}')" class="ac-btn" style="padding: 4px 10px; font-size:12px; margin-left:6px;">
-                ${doc.is_urgent ? 'Reprioritize' : 'Prioritize'}
-            </button>
-            <button onclick="event.stopPropagation(); toggleHoldDocument('${doc.id}', ${doc.is_on_hold ? 'false' : 'true'})" class="ac-btn" style="padding: 4px 10px; font-size:12px; margin-left:6px;">
-                ${doc.is_on_hold ? 'Release Hold' : 'Hold Job'}
-            </button>
+            <button onclick="event.stopPropagation(); cleanupDone('${doc.id}')" class="ac-btn" style="padding: 4px 10px; font-size:12px; margin-left:6px;">
+                Cleanup Done
+            </button>`;
+            if (!canDownload) {
+                actions += `
+                <button onclick="event.stopPropagation(); prioritizeJob('${doc.id}')" class="ac-btn" style="padding: 4px 10px; font-size:12px; margin-left:6px;">
+                    ${doc.is_urgent ? 'Reprioritize' : 'Prioritize'}
+                </button>
+                <button onclick="event.stopPropagation(); toggleHoldDocument('${doc.id}', ${doc.is_on_hold ? 'false' : 'true'})" class="ac-btn" style="padding: 4px 10px; font-size:12px; margin-left:6px;">
+                    ${doc.is_on_hold ? 'Release Hold' : 'Hold Job'}
+                </button>`;
+            }
+            actions += `
             <button onclick="event.stopPropagation(); deleteDocument('${doc.id}')" class="ac-btn" style="padding: 4px; color:var(--accent-red); background:none; border:none; margin-left:8px;">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M3 6h18m-2 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"></path>
@@ -1270,6 +1277,34 @@
         } catch (err) {
             console.error(err);
             showToast("Network error during merge.", "error");
+        }
+    }
+
+    async function cleanupDone(docId) {
+        const doc = allDocuments.find((d) => String(d.id) === String(docId)) || {};
+        const guessed = String(doc.title || '').split('_')[0] || '';
+        const jobName = prompt('Enter job name for cleanup upload (e.g., XBSG1):', guessed);
+        if (jobName === null) return;
+        const clean = String(jobName || '').trim();
+        if (!clean) {
+            showToast('Job name is required.', 'warning');
+            return;
+        }
+        try {
+            const response = await fetch(`/api/admin/documents/${docId}/cleanup-done/`, {
+                method: 'POST',
+                headers: { 'X-CSRFToken': '{{ csrf_token }}', 'Content-Type': 'application/json' },
+                body: JSON.stringify({ job_name: clean }),
+            });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                showToast(result.detail || 'Cleanup upload failed.', 'error');
+                return;
+            }
+            showToast(`Cleanup uploaded: ${result.cleanup_file || 'success'}`, 'success');
+        } catch (err) {
+            console.error(err);
+            showToast('Network error while uploading cleanup file.', 'error');
         }
     }
 

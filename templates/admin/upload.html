@@ -401,29 +401,31 @@
         }
     });
 
-    form.addEventListener('submit', (e) => {
-        e.preventDefault();
+    function resetUploadUI() {
+        uploadBtn.disabled = false;
+        uploadBtn.innerHTML = '<i class="fas fa-rocket me-2"></i>Start Processing';
+        progressContainer.style.display = 'none';
+        progressBar.style.width = '0%';
+        progressText.textContent = '0%';
+    }
+
+    function performUpload(forceDuplicate = false) {
         progressContainer.style.display = 'block';
         uploadBtn.disabled = true;
         uploadBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Uploading...';
 
         const formData = new FormData(form);
-        const file = fileInput.files[0];
-        const isWord = file.name.toLowerCase().endsWith('.doc') || file.name.toLowerCase().endsWith('.docx');
-
+        if (forceDuplicate) formData.append('force_duplicate', '1');
         const xhr = new XMLHttpRequest();
         const progressLabel = document.getElementById('progress-label');
         const progressSubtext = document.getElementById('progress-subtext');
-        
-        // --- PROPER UPLOAD PROGRESS TRACKING ---
+
         xhr.upload.onprogress = (event) => {
             if (event.lengthComputable) {
                 const percent = Math.round((event.loaded / event.total) * 100);
-                // Clamp at 99% until server actually confirms save
                 const displayPercent = Math.min(percent, 99);
                 progressBar.style.width = displayPercent + '%';
                 progressText.textContent = displayPercent + '%';
-                
                 if (percent >= 100) {
                     progressLabel.textContent = 'Processing...';
                     progressText.textContent = 'Wait';
@@ -438,48 +440,47 @@
 
         xhr.onload = async () => {
             if (xhr.status >= 200 && xhr.status < 300) {
-                try {
-                    const result = JSON.parse(xhr.responseText);
-                    progressBar.style.width = '100%';
-                    progressText.textContent = '100%';
-                    progressLabel.textContent = 'Success!';
-                    progressSubtext.textContent = 'Upload and splitting complete.';
-                    showAlert('success', 'Upload complete.');
-
-                    uploadBtn.innerHTML = '<i class="fas fa-check me-2"></i>Uploaded';
-                    setTimeout(() => window.location.href = "{% url 'admin_panel:document_list' %}", 1000);
-                } catch (err) {
-                    console.error("JSON Parse Error:", err);
-                    showAlert('error', 'Unexpected server response.');
-                    resetUI();
-                }
-            } else {
-                let errorMsg = 'Upload failed.';
-                try {
-                    const errorObj = JSON.parse(xhr.responseText);
-                    errorMsg = errorObj.detail || errorObj.error || errorMsg;
-                } catch (e) {}
-                showAlert('error', errorMsg);
-                resetUI();
+                progressBar.style.width = '100%';
+                progressText.textContent = '100%';
+                progressLabel.textContent = 'Success!';
+                progressSubtext.textContent = 'Upload and splitting complete.';
+                showAlert('success', 'Upload complete.');
+                uploadBtn.innerHTML = '<i class="fas fa-check me-2"></i>Uploaded';
+                setTimeout(() => window.location.href = "{% url 'admin_panel:document_list' %}", 1000);
+                return;
             }
+
+            let errorObj = {};
+            try { errorObj = JSON.parse(xhr.responseText || '{}'); } catch (e) {}
+            if (xhr.status === 409 && errorObj.duplicate_detected && !forceDuplicate) {
+                resetUploadUI();
+                const proceed = window.confirm('Duplicate file name detected in uploaded documents list. Click OK to proceed anyway, or Cancel to keep it flagged as duplicate.');
+                if (proceed) {
+                    performUpload(true);
+                } else {
+                    showAlert('warning', 'Duplicate detected. Upload not processed until you click Proceed.');
+                }
+                return;
+            }
+
+            const errorMsg = errorObj.detail || errorObj.error || 'Upload failed.';
+            showAlert('error', errorMsg);
+            resetUploadUI();
         };
 
         xhr.onerror = () => {
             showAlert('error', 'Network error or connection lost.');
-            resetUI();
+            resetUploadUI();
         };
-
-        function resetUI() {
-            uploadBtn.disabled = false;
-            uploadBtn.innerHTML = '<i class="fas fa-rocket me-2"></i>Start Processing';
-            progressContainer.style.display = 'none';
-            progressBar.style.width = '0%';
-            progressText.textContent = '0%';
-        }
 
         xhr.open('POST', '/api/admin/documents/', true);
         xhr.setRequestHeader('X-CSRFToken', '{{ csrf_token }}');
         xhr.send(formData);
+    }
+
+    form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        performUpload(false);
     });
 
     function initConversionCard(documentId, meta) {
