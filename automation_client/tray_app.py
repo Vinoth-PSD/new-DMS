@@ -418,6 +418,7 @@ class ResourceTrayApp:
                 logging.warning("[UPLOAD] completed_files move failed for %s: %s", path.name, exc)
             try:
                 prefix = f"{resource_id}_{job_id}_"
+                submitted_bundle = str(parsed.get("bundleid") or "").strip()
                 for dl in self.download_dir.iterdir():
                     if not dl.is_file():
                         continue
@@ -426,6 +427,12 @@ class ResourceTrayApp:
                         continue
                     if not dl.name.startswith(prefix):
                         continue
+                    # Critical: archive only the downloaded split that matches
+                    # the uploaded bundle id. Do not move other pending splits
+                    # for the same job id.
+                    if submitted_bundle:
+                        if f"_{submitted_bundle}_" not in dl.name:
+                            continue
                     target = self.past_downloads_dir / dl.name
                     if target.exists():
                         stamp = int(time.time())

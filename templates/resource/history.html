@@ -203,12 +203,15 @@
             const sorted = (row.page_numbers || []).slice().sort((a, b) => a - b);
             const pageLabel = formatPageLabel(sorted);
             const countLabel = `${row.pages_completed || sorted.length} pages`;
+            const totalPages = Number(row.document_total_pages || 0);
             const submittedDate = row.last_completed_at ? new Date(row.last_completed_at).toLocaleString() : '-';
             return `
                 <tr>
                     <td>
                         <div style="font-weight: 700; color:#1e293b;">${title}</div>
-                        <div style="font-size: 11px; color: #64748b;">Document #${row.document_id}</div>
+                        <div style="font-size: 11px; color: #64748b;">
+                            Document #${row.document_id} • Total pages: ${totalPages || '-'}
+                        </div>
                     </td>
                     <td>
                         <span class="badge bg-light text-dark border">${pageLabel}</span>

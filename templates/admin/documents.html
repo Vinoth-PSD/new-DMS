@@ -791,7 +791,38 @@
     .ac-assignee-item .status-icon {
         font-size: 12px;
     }
+
+    /* Select2 (Bootstrap-like) styling for split reassignment multi-select */
+    .select2-container {
+        min-width: 200px !important;
+    }
+
+    .select2-container--bootstrap-5 .select2-selection--multiple {
+        min-height: 38px;
+        background: #ffffff;
+        border: 1px solid #ced4da;
+        border-radius: 0.375rem;
+        font-size: 12px;
+        line-height: 1.2;
+        padding: 2px 4px;
+    }
+
+    .select2-container--bootstrap-5 .select2-selection--multiple .select2-selection__choice {
+        background: #e9ecef;
+        border: 1px solid #dee2e6;
+        color: #212529;
+        font-size: 11px;
+    }
+
+    .select2-container--bootstrap-5 .select2-search--dropdown .select2-search__field {
+        font-size: 12px;
+    }
 </style>
+
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+<link href="https://cdn.jsdelivr.net/npm/select2-bootstrap-5-theme@1.3.0/dist/select2-bootstrap-5-theme.min.css" rel="stylesheet" />
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 
 <script>
     // Global state
@@ -1021,11 +1052,10 @@
                                 ? `<a href="/api/admin/documents/${doc.id}/resource-processed-bundle/?resource_profile_id=${res.resource_profile_id}" target="_blank" class="trace-action-btn trace-btn-view">Download (${res.processed_count} page${res.processed_count === 1 ? '' : 's'})</a>`
                                 : ''}
                             <button class="trace-action-btn" onclick="event.stopPropagation(); if(confirm('Put this split on hold?')) holdSplit('${doc.id}', '${pageCsv}')">Hold Split</button>
-                            <select id="reassign-target-${doc.id}-${res.resource_profile_id || 'unassigned'}" class="trace-action-btn" style="background:#fff; color:#111;">
-                                <option value="">Select Resource</option>
+                            <select id="reassign-target-${doc.id}-${res.resource_profile_id || 'unassigned'}" class="trace-action-btn reassign-multi-select" style="background:#fff; color:#111; min-width: 180px;" multiple size="4" data-placeholder="Search and select resources" onclick="event.stopPropagation()">
                                 ${options}
                             </select>
-                            <button class="trace-action-btn" onclick="event.stopPropagation(); reassignSplit('${doc.id}', '${pageCsv}', document.getElementById('reassign-target-${doc.id}-${res.resource_profile_id || 'unassigned'}')?.value)">Reassign Split</button>
+                            <button class="trace-action-btn" onclick="event.stopPropagation(); reassignSplit('${doc.id}', '${pageCsv}', Array.from(document.getElementById('reassign-target-${doc.id}-${res.resource_profile_id || 'unassigned'}')?.selectedOptions || []).map(opt => opt.value).filter(Boolean))">Reassign Split</button>
                         </div>
                     </div>`;
                 }).join('');
@@ -1157,6 +1187,7 @@
             `;
         });
         tbody.innerHTML = html;
+        initReassignSelects();
         if (expandedDocId) {
             const activeRow = document.getElementById(`row-${expandedDocId}`);
             const activeDetails = document.getElementById(`details-${expandedDocId}`);
@@ -1186,6 +1217,51 @@
         row.classList.toggle('expanded');
         details.classList.toggle('expanded');
         expandedDocId = isExpanded ? null : String(docId);
+    }
+
+    function initReassignSelects() {
+        if (!window.jQuery || !window.jQuery.fn || !window.jQuery.fn.select2) return;
+        const $ = window.jQuery;
+        $('.reassign-multi-select').each(function () {
+            const $el = $(this);
+            if ($el.hasClass('select2-hidden-accessible')) {
+                $el.select2('destroy');
+            }
+            $el.select2({
+                theme: 'bootstrap-5',
+                width: 'style',
+                closeOnSelect: false,
+                placeholder: $el.data('placeholder') || 'Select resources',
+                allowClear: true
+            });
+            $el.on('select2:opening', function (e) {
+                pauseAutoRefresh = true;
+                e.stopPropagation();
+            });
+            $el.on('select2:open', function (e) {
+                pauseAutoRefresh = true;
+                e.stopPropagation();
+            });
+            $el.on('select2:closing select2:close', function (e) {
+                e.stopPropagation();
+                // Keep pause momentarily so user can continue interaction
+                // without immediate table redraw.
+                setTimeout(() => {
+                    const anyOpen = document.querySelector('.select2-container--open');
+                    if (!anyOpen) {
+                        pauseAutoRefresh = false;
+                    }
+                }, 400);
+            });
+            $el.on('change', function () {
+                // Keep refresh paused while user is still making selections.
+                pauseAutoRefresh = true;
+            });
+        });
+        $('.select2-container').on('click mousedown', function (e) {
+            pauseAutoRefresh = true;
+            e.stopPropagation();
+        });
     }
 
     function deleteDocument(id) {
@@ -1362,33 +1438,37 @@
         }
     }
 
-    async function reassignSplit(docId, csvPageNumbers, selectedTarget = '') {
+    async function reassignSplit(docId, csvPageNumbers, selectedTargets = []) {
         const pageIds = pageIdsFromDocAndNumbers(docId, csvPageNumbers);
         if (!pageIds.length) {
             showToast('No split pages found to reassign.', 'error');
             return;
         }
-        const target = selectedTarget || '';
-        if (!target) {
-            showToast('Please select a target resource from the dropdown.', 'warning');
+        const targets = Array.isArray(selectedTargets) ? selectedTargets.filter(Boolean) : [];
+        if (!targets.length) {
+            showToast('Please select one or more target resources from the dropdown.', 'warning');
             return;
         }
         const doc = allDocuments.find((d) => String(d.id) === String(docId));
-        const targetRow = (doc?.available_resources || []).find((r) => String(r.id) === String(target));
-        const targetName = targetRow ? targetRow.username : `#${target}`;
-        if (!confirm(`Reassign selected split pages to ${targetName}?`)) return;
+        const targetNames = targets.map((target) => {
+            const targetRow = (doc?.available_resources || []).find((r) => String(r.id) === String(target));
+            return targetRow ? targetRow.username : `#${target}`;
+        });
+        if (!confirm(`Reassign selected split pages to: ${targetNames.join(', ')}?`)) return;
         try {
             const response = await fetch(`/api/admin/documents/${docId}/reassign-split/`, {
                 method: 'POST',
                 headers: { 'X-CSRFToken': '{{ csrf_token }}', 'Content-Type': 'application/json' },
-                body: JSON.stringify({ page_ids: pageIds, resource_profile_id: target }),
+                body: JSON.stringify({ page_ids: pageIds, resource_profile_ids: targets }),
             });
             if (!response.ok) {
                 const err = await response.json().catch(() => ({}));
                 showToast(err.detail || 'Unable to reassign split.', 'error');
                 return;
             }
-            showToast('Split reassigned successfully.', 'success');
+            const result = await response.json().catch(() => ({}));
+            const level = result.unassigned && result.unassigned > 0 ? 'warning' : 'success';
+            showToast(result.detail || 'Split reassigned successfully.', level);
             await fetchDocuments();
         } catch (err) {
             console.error(err);
@@ -2138,6 +2218,19 @@
                     pauseAutoRefresh = false;
                 }
             }, 150);
+        }
+    });
+    document.addEventListener('click', (e) => {
+        const isReassignArea =
+            (e.target && e.target.closest && e.target.closest('.select2-container')) ||
+            (e.target && e.target.closest && e.target.closest('.reassign-multi-select'));
+        if (!isReassignArea) {
+            const anyOpen = document.querySelector('.select2-container--open');
+            if (!anyOpen) {
+                setTimeout(() => {
+                    pauseAutoRefresh = false;
+                }, 300);
+            }
         }
     });
 </script>

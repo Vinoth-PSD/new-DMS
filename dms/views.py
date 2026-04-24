@@ -248,36 +248,82 @@ class DocumentViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path="reassign-split")
     def reassign_split(self, request, pk=None):
         document = self.get_object()
-        target_id = request.data.get("resource_profile_id")
         page_ids = request.data.get("page_ids") or []
-        if not target_id or not page_ids:
-            return Response({"detail": "resource_profile_id and page_ids are required"}, status=400)
+        target_ids = request.data.get("resource_profile_ids") or []
+        if not target_ids:
+            legacy_target_id = request.data.get("resource_profile_id")
+            if legacy_target_id:
+                target_ids = [legacy_target_id]
+        if not target_ids or not page_ids:
+            return Response({"detail": "resource_profile_id(s) and page_ids are required"}, status=400)
         try:
-            target = ResourceProfile.objects.get(id=int(target_id))
-        except (ResourceProfile.DoesNotExist, ValueError):
-            return Response({"detail": "Invalid resource_profile_id"}, status=404)
+            normalized_ids = [int(v) for v in target_ids]
+        except (TypeError, ValueError):
+            return Response({"detail": "Invalid resource_profile_id(s)"}, status=400)
+        if len(set(normalized_ids)) != len(normalized_ids):
+            return Response({"detail": "Duplicate resource_profile_ids are not allowed"}, status=400)
+        targets_by_id = {r.id: r for r in ResourceProfile.objects.filter(id__in=normalized_ids)}
+        if len(targets_by_id) != len(normalized_ids):
+            return Response({"detail": "One or more resource_profile_ids are invalid"}, status=404)
+        # Preserve client selection order for fair split assignment.
+        targets = [targets_by_id[rid] for rid in normalized_ids]
         pages = list(document.pages.filter(id__in=page_ids).order_by("page_number"))
+        if not pages:
+            return Response({"detail": "No matching pages found for this document"}, status=404)
+
+        target_count = len(targets)
+        total_pages = len(pages)
+        base = total_pages // target_count
+        extra = total_pages % target_count
+        allocation = [base + (1 if idx < extra else 0) for idx in range(target_count)]
         now = timezone.now()
-        for page in pages:
-            page.assigned_to = target
-            page.assigned_at = now
-            page.is_on_hold = False
-            page.status = DocumentPage.Status.ASSIGNED
-            page.submitted_at = None
-            page.download_started_at = None
-            page.save(
-                update_fields=[
-                    "assigned_to",
-                    "assigned_at",
-                    "is_on_hold",
-                    "status",
-                    "submitted_at",
-                    "download_started_at",
-                    "updated_at",
-                ]
+        assignable_pages = pages
+        unassigned_pages = []
+        page_offset = 0
+        assignments: list[dict] = []
+        for idx, target in enumerate(targets):
+            take = allocation[idx]
+            if take <= 0:
+                continue
+            assigned_slice = assignable_pages[page_offset : page_offset + take]
+            for page in assigned_slice:
+                page.assigned_to = target
+                page.assigned_at = now
+                page.is_on_hold = False
+                page.status = DocumentPage.Status.ASSIGNED
+                page.submitted_at = None
+                page.download_started_at = None
+                page.save(
+                    update_fields=[
+                        "assigned_to",
+                        "assigned_at",
+                        "is_on_hold",
+                        "status",
+                        "submitted_at",
+                        "download_started_at",
+                        "updated_at",
+                    ]
+                )
+            page_offset += take
+            assignments.append(
+                {
+                    "resource_profile_id": target.id,
+                    "assigned_pages": take,
+                }
             )
         update_document_status(document)
-        return Response({"updated": len(pages), "status": "reassigned"})
+        detail = "Split reassigned successfully."
+        status_label = "reassigned"
+        return Response(
+            {
+                "updated": len(assignable_pages),
+                "requested": len(pages),
+                "unassigned": len(unassigned_pages),
+                "status": status_label,
+                "detail": detail,
+                "assignments": assignments,
+            }
+        )
 
     @action(detail=True, methods=["post"], url_path="prioritize")
     def prioritize(self, request, pk=None):
@@ -734,6 +780,7 @@ def resource_work_bundles(request):
             current = {
                 "document_id": page.document_id,
                 "document_title": page.document.title,
+                "document_total_pages": page.document.total_pages,
                 "resource_id": request.user.resource_profile.id,
                 "status": page.status,
                 "page_numbers": [],
@@ -793,6 +840,7 @@ def resource_history_bundles(request):
             row = {
                 "document_id": page.document_id,
                 "document_title": page.document.title,
+                "document_total_pages": page.document.total_pages,
                 "status": "COMPLETED",
                 "page_numbers": [],
                 "pages_completed": 0,

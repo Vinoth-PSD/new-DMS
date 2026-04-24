@@ -16,6 +16,8 @@ def _merge_docx_byte_segments(parts: list[bytes]) -> bytes:
     master = Document(io.BytesIO(parts[0]))
     composer = Composer(master)
     for payload in parts[1:]:
+        # Keep split boundaries explicit in merged Word output.
+        master.add_page_break()
         composer.append(Document(io.BytesIO(payload)))
     out = io.BytesIO()
     composer.save(out)
