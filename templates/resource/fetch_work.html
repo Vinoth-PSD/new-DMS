@@ -22,6 +22,11 @@
                style="background:#1a3c6e; color:#fff; font-weight:700; padding:10px 14px; border-radius:6px; text-decoration:none;">
                 Download Tray App ZIP
             </a>
+            <button id="break-toggle-btn" type="button" class="btn btn-sm"
+                onclick="toggleBreakMode()"
+                style="margin-left:8px; background:#d97706; color:#fff; font-weight:700; padding:10px 14px; border-radius:6px; border:0;">
+                {{ request.user.resource_profile.is_on_break|yesno:"Resume Work,Take Break" }}
+            </button>
         </div>
     </div>
 
@@ -35,6 +40,7 @@
                 <table class="table table-hover align-middle mb-0">
                     <thead class="table-light">
                         <tr>
+                            <th>Job Name</th>
                             <th>File Name</th>
                             <th>Page Range</th>
                             <th>Pages Assigned</th>
@@ -43,7 +49,7 @@
                     </thead>
                     <tbody id="assignments-container">
                         <!-- Loaded via JS -->
-                        <tr><td colspan="4" class="text-center p-4">Loading your assignments...</td></tr>
+                        <tr><td colspan="5" class="text-center p-4">Loading your assignments...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -66,6 +72,7 @@
     let nextUrl = null;
     let prevUrl = null;
     let suspendAutoRefresh = false;
+    let isOnBreak = {{ request.user.resource_profile.is_on_break|yesno:"true,false" }};
     function getCsrfToken() {
         const fromWindow = window.csrftoken;
         const fromForm = document.querySelector('[name=csrfmiddlewaretoken]')?.value;
@@ -76,10 +83,40 @@
 
     function renderEmptyState() {
         assignmentsContainer.innerHTML = `
-            <tr><td colspan="4" class="text-center p-5">
+            <tr><td colspan="5" class="text-center p-5">
                 <h4 class="text-muted">No Active Assignments</h4>
                 <p class="text-muted">You will see new tasks here when they are assigned to you.</p>
             </td></tr>`;
+    }
+
+    async function toggleBreakMode() {
+        const next = !isOnBreak;
+        try {
+            const response = await fetch('/api/resource/work/break-toggle/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCsrfToken(),
+                },
+                body: JSON.stringify({ enabled: next }),
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                showToast(data.detail || 'Failed to update break mode.', 'error');
+                return;
+            }
+            isOnBreak = Boolean(data.is_on_break);
+            const btn = document.getElementById('break-toggle-btn');
+            if (btn) {
+                btn.textContent = isOnBreak ? 'Resume Work' : 'Take Break';
+                btn.style.background = isOnBreak ? '#16a34a' : '#d97706';
+            }
+            showToast(isOnBreak ? 'Break enabled. New jobs will not be assigned.' : 'Break disabled. Job assignment resumed.', 'success');
+            loadAssignments();
+        } catch (err) {
+            console.error(err);
+            showToast('Network error while toggling break mode.', 'error');
+        }
     }
 
     function renderAssignmentBlocks(assignments) {
@@ -112,6 +149,9 @@
             const dlBase = a.suggested_download_basename || `${a.resource_id}_${a.document_id}_document_B${a.document_id}`;
             return `
                 <tr style="height: 70px;">
+                    <td style="padding: 12px 16px; font-size: 12px; color:#0f172a; font-weight:700;">
+                        ${a.document_job_name ? a.document_job_name : '-'}
+                    </td>
                     <td style="padding: 12px 16px;">
                         <div style="font-weight: 700; color: #1e293b; font-size: 14px; line-height: 1.2;">${a.document_title || `Document ${a.document_id}`}</div>
                         <div style="font-size: 11px; color: #94a3b8; font-family: 'Inter', sans-serif; margin-top: 4px;">

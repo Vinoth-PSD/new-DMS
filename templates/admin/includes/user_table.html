@@ -228,8 +228,11 @@
                     {% if request.resolver_match.url_name == 'resource_list' %}
                     <td class="col-work">
                         <span
-                            style="display:inline-flex; padding: 2px 8px; border-radius:4px; font-size:11px; font-weight:600; text-transform:uppercase; {% if u.is_working %}background:#ebf8ff; color:#2b6cb0;{% else %}background:#f0fdf4; color:#166534;{% endif %}">
-                            {% if u.is_working %}Assigned{% else %}Idle{% endif %}
+                            style="display:inline-flex; padding: 2px 8px; border-radius:4px; font-size:11px; font-weight:600; text-transform:uppercase;
+                            {% if u.resource_profile.is_on_break %}background:#fff7ed; color:#c2410c;
+                            {% elif u.is_working %}background:#ebf8ff; color:#2b6cb0;
+                            {% else %}background:#f0fdf4; color:#166534;{% endif %}">
+                            {% if u.resource_profile.is_on_break %}On Break{% elif u.is_working %}Assigned{% else %}Idle{% endif %}
                         </span>
                     </td>
                     <td class="col-cap">
@@ -266,6 +269,15 @@
                                 data-manual-enabled="{{ u.resource_profile.manual_upload_enabled|yesno:'true,false' }}"
                                 style="padding: 0.25rem 0.75rem; font-size:12px;">
                                 {% if u.resource_profile.manual_upload_enabled %}Manual: Enabled{% else %}Manual: Disabled{% endif %}
+                            </button>
+                            <button
+                                type="button"
+                                class="ac-btn ac-btn-secondary action-btn"
+                                data-action="break-toggle"
+                                data-resource-id="{{ u.resource_profile.id }}"
+                                data-break-enabled="{{ u.resource_profile.is_on_break|yesno:'true,false' }}"
+                                style="padding: 0.25rem 0.75rem; font-size:12px;">
+                                {% if u.resource_profile.is_on_break %}Break: ON{% else %}Break: OFF{% endif %}
                             </button>
                             {% endif %}
                             <button type="button" class="ac-btn ac-btn-secondary action-btn" data-action="delete"

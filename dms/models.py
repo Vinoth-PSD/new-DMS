@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone
 
@@ -23,9 +24,25 @@ class ResourceProfile(TimeStampedModel):
         default=False,
         help_text="When enabled, admin can manually assign held/reassigned jobs to this resource; auto-assignment skips this resource.",
     )
+    word_split_layout_ratio = models.FloatField(
+        default=0.79,
+        validators=[MinValueValidator(0.0), MaxValueValidator(0.79)],
+        help_text="Default word split layout ratio. Capped at 0.79.",
+    )
+    is_on_break = models.BooleanField(default=False)
+    break_started_at = models.DateTimeField(null=True, blank=True)
+    break_ended_at = models.DateTimeField(null=True, blank=True)
+    total_break_seconds = models.PositiveIntegerField(default=0)
 
     def __str__(self) -> str:
         return f"{self.user.username} ({self.max_page_capacity})"
+
+    def save(self, *args, **kwargs):
+        # Safety cap: layout ratio must never exceed 0.79.
+        if self.word_split_layout_ratio is None:
+            self.word_split_layout_ratio = 0.79
+        self.word_split_layout_ratio = min(float(self.word_split_layout_ratio), 0.79)
+        super().save(*args, **kwargs)
 
     @property
     def current_load(self) -> int:
@@ -39,12 +56,42 @@ class ResourceProfile(TimeStampedModel):
 
     @property
     def is_available(self) -> bool:
-        return self.is_active_session and self.remaining_capacity > 0
+        return self.is_active_session and (not self.is_on_break) and self.remaining_capacity > 0
 
     def mark_active(self) -> None:
         self.is_active_session = True
         self.last_seen_at = timezone.now()
         self.save(update_fields=["is_active_session", "last_seen_at", "updated_at"])
+
+    def set_break(self, enabled: bool) -> None:
+        now = timezone.now()
+        enabled = bool(enabled)
+        if enabled:
+            if not self.is_on_break:
+                self.is_on_break = True
+                self.break_started_at = now
+                self.break_ended_at = None
+                self.save(update_fields=["is_on_break", "break_started_at", "break_ended_at", "updated_at"])
+            return
+
+        if self.is_on_break:
+            started = self.break_started_at
+            elapsed = 0
+            if started:
+                elapsed = max(int((now - started).total_seconds()), 0)
+            self.total_break_seconds = int(self.total_break_seconds or 0) + elapsed
+            self.is_on_break = False
+            self.break_ended_at = now
+            self.break_started_at = None
+            self.save(
+                update_fields=[
+                    "is_on_break",
+                    "break_started_at",
+                    "break_ended_at",
+                    "total_break_seconds",
+                    "updated_at",
+                ]
+            )
 
 
 def validate_document_extension(value) -> None:
@@ -86,6 +133,24 @@ class Document(TimeStampedModel):
     is_on_hold = models.BooleanField(default=False)
     is_urgent = models.BooleanField(default=False)
     prioritized_at = models.DateTimeField(null=True, blank=True)
+    external_job_id = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="External pl_job_master.JobID when imported from SFTP/MySQL.",
+    )
+    external_job_name = models.CharField(
+        max_length=128,
+        blank=True,
+        default="",
+        help_text="External pl_job_master.JobName when imported from SFTP/MySQL.",
+    )
+    external_job_user_file_id = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="External pl_job_file_user.JobUserFileID for idempotent import.",
+    )
 
     def __str__(self) -> str:
         return self.title

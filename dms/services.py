@@ -41,7 +41,7 @@ def assign_unassigned_pages(document_id: int | None = None) -> int:
     resources = [
         r
         for r in ResourceProfile.objects.select_for_update()
-        .filter(is_active_session=True, last_seen_at__gte=cutoff)
+        .filter(is_active_session=True, is_on_break=False, last_seen_at__gte=cutoff)
         .order_by("id")
         if r.remaining_capacity > 0
     ]

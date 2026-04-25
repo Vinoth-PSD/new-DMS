@@ -11,6 +11,10 @@
             <!-- <p class="ac-page-subtitle">View and manage all documents across the platform.</p> -->
         </div>
         <div class="header-right">
+            <button type="button" class="ac-btn ac-btn-secondary" onclick="syncExternalJobs()"
+                style="font-weight:700; padding:10px 16px; white-space:nowrap;">
+                Sync external jobs
+            </button>
         </div>
     </div>
 
@@ -22,7 +26,7 @@
                 <div style="width:100%; display:flex; justify-content:space-between; align-items:center; gap:1.5rem;">
                     <div class="ac-filters">
                         <div style="position:relative;">
-                            <input type="text" id="docSearch" class="ac-search-input" placeholder="Search by name..."
+                            <input type="text" id="docSearch" class="ac-search-input" placeholder="Search by name or external job…"
                                 onkeyup="filterDocuments()">
                             <svg style="position:absolute; right:12px; top:10px; color:#a3a3a3; width:16px; height:16px;"
                                 viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -48,6 +52,7 @@
                 <table class="ac-table" id="users-table">
                     <thead>
                         <tr>
+                            <th class="col-job-name">Job Name</th>
                             <th class="col-exp" style="width: 40px;"></th>
                             <th class="col-name">Filename</th>
                             <th class="col-version" style="text-align:center;">Ver.</th>
@@ -61,7 +66,7 @@
                     </thead>
                     <tbody id="document-table-body">
                         <tr>
-                            <td colspan="8" style="text-align: center; padding: 40px;">Loading documents...</td>
+                            <td colspan="9" style="text-align: center; padding: 40px;">Loading documents...</td>
                         </tr>
                     </tbody>
                 </table>
@@ -852,6 +857,31 @@
     let nextUrl = null;
     let prevUrl = null;
 
+    async function syncExternalJobs() {
+        if (!confirm('Fetch eligible files from external SFTP/MySQL and create documents for new jobs?')) return;
+        try {
+            const response = await fetch('/api/admin/documents/sync-external/', {
+                method: 'POST',
+                headers: { 'X-CSRFToken': '{{ csrf_token }}', 'Content-Type': 'application/json' },
+                body: '{}',
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                showToast(data.detail || 'Sync failed.', 'error');
+                return;
+            }
+            const n = data.created_count ?? 0;
+            showToast(`Sync complete: ${n} document(s) created. Examined ${data.examined ?? 0} job file row(s).`, 'success');
+            if (data.errors && data.errors.length) {
+                console.warn('External sync errors', data.errors);
+            }
+            await fetchDocuments();
+        } catch (err) {
+            console.error(err);
+            showToast('Network error during sync.', 'error');
+        }
+    }
+
     async function fetchDocuments(url = '/api/admin/documents/') {
         try {
             // Append filters if using base URL
@@ -891,7 +921,7 @@
         } catch (err) {
             console.error(err);
             const tbody = document.getElementById('document-table-body');
-            tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: red; padding: 40px;">Failed to load documents.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: red; padding: 40px;">Failed to load documents.</td></tr>';
         }
     }
 
@@ -930,6 +960,17 @@
         return `<div class="merged-ver-chips">${chips}</div>`;
     }
 
+    function formatDurationSeconds(totalSeconds) {
+        const secs = Number(totalSeconds);
+        if (!Number.isFinite(secs) || secs < 0) return 'N/A';
+        const h = Math.floor(secs / 3600);
+        const m = Math.floor((secs % 3600) / 60);
+        const s = Math.floor(secs % 60);
+        if (h > 0) return `${h}h ${m}m ${s}s`;
+        if (m > 0) return `${m}m ${s}s`;
+        return `${s}s`;
+    }
+
     function renderDocuments() {
         const tbody = document.getElementById('document-table-body');
         
@@ -949,7 +990,7 @@
         }
 
         if (filteredDocs.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 40px; color:var(--ac-text-secondary);">No documents found matching your criteria.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; padding: 40px; color:var(--ac-text-secondary);">No documents found matching your criteria.</td></tr>';
             return;
         }
 
@@ -982,6 +1023,7 @@
                             pages: [],
                             started_at: res.download_started_at || res.viewed_at || null,
                             submitted_at: res.submitted_at || res.completed_at || null,
+                            split_completion_seconds: res.split_completion_seconds ?? null,
                             status_raw: res.status_raw,
                             resource_profile_id: res.resource_profile_id,
                             processed_count: 0,
@@ -1003,6 +1045,12 @@
                     if (res.processed_file) {
                         groupedByResource[key].processed_count += 1;
                     }
+                    if (res.split_completion_seconds != null) {
+                        groupedByResource[key].split_completion_seconds = Math.max(
+                            Number(groupedByResource[key].split_completion_seconds || 0),
+                            Number(res.split_completion_seconds || 0)
+                        );
+                    }
                 });
                 miniAuditHtml = Object.values(groupedByResource).map(res => {
                     const sortedPages = (res.pages || []).slice().sort((a, b) => a - b);
@@ -1012,6 +1060,9 @@
                     const submittedAt = res.submitted_at
                         ? new Date(res.submitted_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
                         : `<span class="pending-highlight">Pending</span>`;
+                    const splitDuration = res.split_completion_seconds != null
+                        ? formatDurationSeconds(res.split_completion_seconds)
+                        : (res.started_at ? formatDurationSeconds(Math.max(Math.floor((Date.now() - new Date(res.started_at).getTime()) / 1000), 0)) : 'N/A');
                     const options = (doc.available_resources || [])
                         .filter((r) => String(r.id) !== String(res.resource_profile_id || ''))
                         .map((r) => `<option value="${r.id}">${r.username} (#${r.id})</option>`)
@@ -1047,6 +1098,7 @@
                             <div class="mini-audit-times">
                                 <div><span class="mini-audit-label">Started</span> ${startedAt}</div>
                                 <div><span class="mini-audit-label">Submitted</span> ${submittedAt}</div>
+                                <div><span class="mini-audit-label">Duration</span> ${splitDuration}</div>
                             </div>
                             ${res.processed_count > 0 && res.resource_profile_id != null
                                 ? `<a href="/api/admin/documents/${doc.id}/resource-processed-bundle/?resource_profile_id=${res.resource_profile_id}" target="_blank" class="trace-action-btn trace-btn-view">Download (${res.processed_count} page${res.processed_count === 1 ? '' : 's'})</a>`
@@ -1148,8 +1200,12 @@
 
 
             const isExpanded = String(expandedDocId) === String(doc.id);
+            const overallDuration = formatDurationSeconds(doc.overall_processing_seconds);
             html += `
             <tr id="row-${doc.id}" class="main-row" onclick="toggleDetails('${doc.id}')">
+                <td class="col-job-name" style="font-size: 12px; color:#0f172a; font-weight:700;">
+                    ${doc.external_job_name ? escapeHtml(doc.external_job_name) : '-'}
+                </td>
                 <td class="col-exp">
                     <button class="expansion-toggle">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
@@ -1166,11 +1222,14 @@
 
                 <td class="col-assigned">${assignedToHtml}</td>
                 <td class="col-status">${statusBadge}${mergedVersionsHtml(doc)}</td>
-                <td class="col-created" style="color:var(--ac-text-secondary); font-size:13px; white-space: nowrap;">${new Date(doc.created_at || doc.uploaded_at || Date.now()).toLocaleDateString()}</td>
+                <td class="col-created" style="color:var(--ac-text-secondary); font-size:13px; white-space: nowrap;">
+                    ${new Date(doc.created_at || doc.uploaded_at || Date.now()).toLocaleDateString()}
+                    <div style="font-size: 10px; color:#64748b; margin-top:4px;">Duration: ${overallDuration}</div>
+                </td>
                 <td class="col-actions" style="text-align:right;">${actions}</td>
             </tr>
             <tr id="details-${doc.id}" class="ac-details-row${isExpanded ? ' expanded' : ''}">
-                <td colspan="8">
+                <td colspan="9">
                     <div class="ac-details-content">
                         <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 15px;">
                             <div>

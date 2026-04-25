@@ -29,13 +29,14 @@
                 <table class="table table-hover align-middle mb-0" id="history-table">
                     <thead class="table-light">
                         <tr>
+                            <th>Job Name</th>
                             <th>File Name</th>
                             <th>Page Range</th>
                             <th>Completed On</th>
                         </tr>
                     </thead>
                     <tbody id="history-container">
-                        <tr><td colspan="3" class="text-center p-4">Loading history...</td></tr>
+                        <tr><td colspan="4" class="text-center p-4">Loading history...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -183,7 +184,7 @@
         } catch (error) {
             console.error('Error loading history:', error);
             historyContainer.innerHTML = `
-                <tr><td colspan="3" class="text-center p-4 text-danger">
+                <tr><td colspan="4" class="text-center p-4 text-danger">
                     Failed to load history. Please refresh the page.
                 </td></tr>`;
         }
@@ -192,7 +193,7 @@
     function renderHistory(rows) {
         if (!rows || rows.length === 0) {
             historyContainer.innerHTML = `
-                <tr><td colspan="3" class="text-center p-5 text-muted">
+                <tr><td colspan="4" class="text-center p-5 text-muted">
                     No completed jobs found for this filter.
                 </td></tr>`;
             return;
@@ -207,6 +208,9 @@
             const submittedDate = row.last_completed_at ? new Date(row.last_completed_at).toLocaleString() : '-';
             return `
                 <tr>
+                    <td style="font-size: 12px; color:#0f172a; font-weight:700;">
+                        ${row.document_job_name ? row.document_job_name : '-'}
+                    </td>
                     <td>
                         <div style="font-weight: 700; color:#1e293b;">${title}</div>
                         <div style="font-size: 11px; color: #64748b;">

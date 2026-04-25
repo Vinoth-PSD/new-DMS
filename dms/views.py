@@ -28,6 +28,7 @@ from .external_cleanup import (
     fetch_latest_job_input,
     upload_to_cleanup_dir,
 )
+from .external_import import sync_external_job_documents
 from .merged_versioning import finalize_merged_output, suggested_merged_download_filename
 from .permissions import IsResourceUser, IsStaffAdmin, IsStaffAdminOrAutomationKey
 from .serializers import (
@@ -122,6 +123,25 @@ class ResourceViewSet(viewsets.ModelViewSet):
         profile.save(update_fields=["manual_upload_enabled", "updated_at"])
         return Response({"id": profile.id, "manual_upload_enabled": profile.manual_upload_enabled})
 
+    @action(detail=True, methods=["post"], url_path="break-toggle")
+    def break_toggle(self, request, pk=None):
+        profile = self.get_object()
+        enabled = request.data.get("enabled")
+        if isinstance(enabled, str):
+            enabled = enabled.strip().lower() in {"1", "true", "yes", "on"}
+        profile.set_break(bool(enabled))
+        if not profile.is_on_break and profile.remaining_capacity > 0:
+            assign_pages_task.delay()
+        return Response(
+            {
+                "id": profile.id,
+                "is_on_break": profile.is_on_break,
+                "break_started_at": profile.break_started_at,
+                "break_ended_at": profile.break_ended_at,
+                "total_break_seconds": profile.total_break_seconds,
+            }
+        )
+
 
 class DocumentViewSet(viewsets.ModelViewSet):
     queryset = Document.objects.all().order_by("-uploaded_at")
@@ -139,7 +159,14 @@ class DocumentViewSet(viewsets.ModelViewSet):
         search = (self.request.query_params.get("search") or "").strip()
         status_filter = (self.request.query_params.get("status") or "").strip()
         if search:
-            qs = qs.filter(Q(title__icontains=search) | Q(original_file__icontains=search))
+            q = (
+                Q(title__icontains=search)
+                | Q(original_file__icontains=search)
+                | Q(external_job_name__icontains=search)
+            )
+            if search.isdigit():
+                q |= Q(external_job_id=int(search))
+            qs = qs.filter(q)
         if status_filter and status_filter.upper() != "ALL":
             status_map = {
                 "COMPLETED": Document.Status.COMPLETED,
@@ -180,6 +207,26 @@ class DocumentViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         document = serializer.save(uploaded_by=self.request.user)
         split_document_task.delay(document.id)
+
+    @action(detail=False, methods=["post"], url_path="sync-external")
+    def sync_external(self, request):
+        """
+        Pull eligible input files from external MySQL + SFTP and create local Document rows
+        (same storage and split/assign flow as manual upload).
+        """
+        # Reload .env for long-lived runserver processes so UI sync
+        # uses the same latest credentials as manual CLI commands.
+        try:
+            from dotenv import load_dotenv
+
+            load_dotenv(Path(settings.BASE_DIR) / ".env", override=True)
+        except Exception:
+            pass
+        try:
+            result = sync_external_job_documents(uploaded_by=request.user)
+        except Exception as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(result, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"])
     def assign(self, request, pk=None):
@@ -751,9 +798,30 @@ def heartbeat(request):
         profile.last_seen_at = timezone.now()
         profile.is_active_session = True
         profile.save(update_fields=["last_seen_at", "is_active_session", "updated_at"])
-        if profile.remaining_capacity > 0:
+        if (not profile.is_on_break) and profile.remaining_capacity > 0:
             assign_pages_task.delay()
     return Response({"ok": True})
+
+
+@api_view(["POST"])
+@permission_classes([IsResourceUser])
+def resource_break_toggle(request):
+    profile = request.user.resource_profile
+    enabled = request.data.get("enabled")
+    if isinstance(enabled, str):
+        enabled = enabled.strip().lower() in {"1", "true", "yes", "on"}
+    profile.set_break(bool(enabled))
+    if not profile.is_on_break and profile.remaining_capacity > 0:
+        assign_pages_task.delay()
+    return Response(
+        {
+            "id": profile.id,
+            "is_on_break": profile.is_on_break,
+            "break_started_at": profile.break_started_at,
+            "break_ended_at": profile.break_ended_at,
+            "total_break_seconds": profile.total_break_seconds,
+        }
+    )
 
 
 @api_view(["GET"])
@@ -780,6 +848,7 @@ def resource_work_bundles(request):
             current = {
                 "document_id": page.document_id,
                 "document_title": page.document.title,
+                "document_job_name": (page.document.external_job_name or "").strip(),
                 "document_total_pages": page.document.total_pages,
                 "resource_id": request.user.resource_profile.id,
                 "status": page.status,
@@ -840,6 +909,7 @@ def resource_history_bundles(request):
             row = {
                 "document_id": page.document_id,
                 "document_title": page.document.title,
+                "document_job_name": (page.document.external_job_name or "").strip(),
                 "document_total_pages": page.document.total_pages,
                 "status": "COMPLETED",
                 "page_numbers": [],

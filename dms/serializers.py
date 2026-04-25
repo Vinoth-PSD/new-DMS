@@ -31,6 +31,7 @@ class ResourceSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(source="user.email", read_only=True)
     remaining_capacity = serializers.IntegerField(read_only=True)
     is_active_session = serializers.SerializerMethodField()
+    current_break_seconds = serializers.SerializerMethodField()
 
     class Meta:
         model = ResourceProfile
@@ -40,7 +41,13 @@ class ResourceSerializer(serializers.ModelSerializer):
             "email",
             "max_page_capacity",
             "manual_upload_enabled",
+            "word_split_layout_ratio",
             "is_active_session",
+            "is_on_break",
+            "break_started_at",
+            "break_ended_at",
+            "total_break_seconds",
+            "current_break_seconds",
             "last_seen_at",
             "remaining_capacity",
         )
@@ -50,12 +57,19 @@ class ResourceSerializer(serializers.ModelSerializer):
             return False
         return obj.last_seen_at >= timezone.now() - timedelta(seconds=ONLINE_TTL_SECONDS)
 
+    def get_current_break_seconds(self, obj: ResourceProfile) -> int:
+        if not obj.is_on_break or not obj.break_started_at:
+            return int(obj.total_break_seconds or 0)
+        live = max(int((timezone.now() - obj.break_started_at).total_seconds()), 0)
+        return int(obj.total_break_seconds or 0) + live
+
 
 class DocumentSerializer(serializers.ModelSerializer):
     created_at = serializers.DateTimeField(source="uploaded_at", read_only=True)
     assigned_resources = serializers.SerializerMethodField()
     merged_versions = serializers.SerializerMethodField()
     available_resources = serializers.SerializerMethodField()
+    overall_processing_seconds = serializers.SerializerMethodField()
 
     class Meta:
         model = Document
@@ -75,6 +89,9 @@ class DocumentSerializer(serializers.ModelSerializer):
             "is_on_hold",
             "is_urgent",
             "prioritized_at",
+            "external_job_id",
+            "external_job_name",
+            "overall_processing_seconds",
             "merged_versions",
             "available_resources",
             "assigned_resources",
@@ -91,6 +108,9 @@ class DocumentSerializer(serializers.ModelSerializer):
             "is_on_hold",
             "is_urgent",
             "prioritized_at",
+            "external_job_id",
+            "external_job_name",
+            "overall_processing_seconds",
             "merged_versions",
             "available_resources",
         )
@@ -142,6 +162,11 @@ class DocumentSerializer(serializers.ModelSerializer):
                 "viewed_at": p.download_started_at,
                 "download_started_at": p.download_started_at,
                 "submitted_at": p.submitted_at,
+                "split_completion_seconds": (
+                    max(int((p.submitted_at - p.assigned_at).total_seconds()), 0)
+                    if p.assigned_at and p.submitted_at
+                    else None
+                ),
                 "processed_file": p.processed_file.url if p.processed_file else None,
                 "is_on_hold": p.is_on_hold,
             }
@@ -153,6 +178,12 @@ class DocumentSerializer(serializers.ModelSerializer):
             {"id": r.id, "username": r.user.username, "manual_upload_enabled": r.manual_upload_enabled}
             for r in ResourceProfile.objects.select_related("user").order_by("user__username")
         ]
+
+    def get_overall_processing_seconds(self, obj: Document):
+        if not obj.uploaded_at:
+            return None
+        end = obj.merged_at or timezone.now()
+        return max(int((end - obj.uploaded_at).total_seconds()), 0)
 
 
 class DocumentPageSerializer(serializers.ModelSerializer):

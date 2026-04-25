@@ -3,6 +3,14 @@ import os
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# Load `.env` from project root so CLI (manage.py) and the app see EXTERNAL_MYSQL_*, SFTP_*, etc.
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(BASE_DIR / ".env")
+except ImportError:
+    pass
+
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "replace-in-production")
 DEBUG = os.getenv("DJANGO_DEBUG", "1") == "1"
 ALLOWED_HOSTS = os.getenv("DJANGO_ALLOWED_HOSTS", "*").split(",")

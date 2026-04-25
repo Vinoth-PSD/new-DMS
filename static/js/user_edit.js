@@ -135,4 +135,36 @@ document.addEventListener('DOMContentLoaded', function () {
             showToast('An error occurred while updating manual mode.', 'error');
         }
     });
+
+    document.addEventListener('click', async function (e) {
+        const button = e.target.closest('.action-btn[data-action="break-toggle"]');
+        if (!button) return;
+        const resourceId = button.dataset.resourceId;
+        const current = String(button.dataset.breakEnabled || 'false') === 'true';
+        const nextEnabled = !current;
+        try {
+            const response = await fetch(`/api/admin/resources/${resourceId}/break-toggle/`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCsrfToken()
+                },
+                body: JSON.stringify({ enabled: nextEnabled })
+            });
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                showToast(err.detail || 'Failed to update break mode.', 'error');
+                return;
+            }
+            button.dataset.breakEnabled = nextEnabled ? 'true' : 'false';
+            button.textContent = nextEnabled ? 'Break: ON' : 'Break: OFF';
+            showToast(`Break mode ${nextEnabled ? 'enabled' : 'disabled'} for resource.`, 'success');
+            if (window.fetchUserList) {
+                window.fetchUserList(window.userCurrentPage || 1);
+            }
+        } catch (error) {
+            console.error('Error updating break mode:', error);
+            showToast('An error occurred while updating break mode.', 'error');
+        }
+    });
 });
