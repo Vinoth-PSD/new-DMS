@@ -69,9 +69,19 @@ class ResourceProfile(TimeStampedModel):
         if enabled:
             if not self.is_on_break:
                 self.is_on_break = True
+                # Hard-stop queue assignment eligibility immediately.
+                self.is_active_session = False
                 self.break_started_at = now
                 self.break_ended_at = None
-                self.save(update_fields=["is_on_break", "break_started_at", "break_ended_at", "updated_at"])
+                self.save(
+                    update_fields=[
+                        "is_on_break",
+                        "is_active_session",
+                        "break_started_at",
+                        "break_ended_at",
+                        "updated_at",
+                    ]
+                )
             return
 
         if self.is_on_break:
@@ -81,11 +91,16 @@ class ResourceProfile(TimeStampedModel):
                 elapsed = max(int((now - started).total_seconds()), 0)
             self.total_break_seconds = int(self.total_break_seconds or 0) + elapsed
             self.is_on_break = False
+            # Mark available again when break is disabled.
+            self.is_active_session = True
+            self.last_seen_at = now
             self.break_ended_at = now
             self.break_started_at = None
             self.save(
                 update_fields=[
                     "is_on_break",
+                    "is_active_session",
+                    "last_seen_at",
                     "break_started_at",
                     "break_ended_at",
                     "total_break_seconds",

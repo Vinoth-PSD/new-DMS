@@ -38,6 +38,7 @@ def update_document_status(document: Document) -> None:
 @transaction.atomic
 def assign_unassigned_pages(document_id: int | None = None) -> int:
     cutoff = timezone.now() - timedelta(seconds=ONLINE_TTL_SECONDS)
+    now = timezone.now()
     resources = [
         r
         for r in ResourceProfile.objects.select_for_update()
@@ -67,6 +68,15 @@ def assign_unassigned_pages(document_id: int | None = None) -> int:
     pages_iter = iter(unassigned_pages)
     exhausted = False
     for resource in resources:
+        # Re-check break/session flags at assignment time to avoid races.
+        resource.refresh_from_db(fields=["is_on_break", "is_active_session", "last_seen_at"])
+        if (
+            resource.is_on_break
+            or (not resource.is_active_session)
+            or (not resource.last_seen_at)
+            or resource.last_seen_at < cutoff
+        ):
+            continue
         slots = max(resource.remaining_capacity, 0)
         while slots > 0 and not exhausted:
             try:
@@ -76,7 +86,7 @@ def assign_unassigned_pages(document_id: int | None = None) -> int:
                 break
             touched_doc_ids.add(page.document_id)
             page.assigned_to = resource
-            page.assigned_at = timezone.now()
+            page.assigned_at = now
             page.status = DocumentPage.Status.ASSIGNED
             page.save(update_fields=["assigned_to", "assigned_at", "status", "updated_at"])
             AssignmentQueue.objects.filter(page=page).delete()

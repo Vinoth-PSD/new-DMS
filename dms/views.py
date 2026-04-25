@@ -130,6 +130,7 @@ class ResourceViewSet(viewsets.ModelViewSet):
         if isinstance(enabled, str):
             enabled = enabled.strip().lower() in {"1", "true", "yes", "on"}
         profile.set_break(bool(enabled))
+        # Preserve existing assignments; only pause NEW auto-assignment while on break.
         if not profile.is_on_break and profile.remaining_capacity > 0:
             assign_pages_task.delay()
         return Response(
@@ -772,13 +773,25 @@ def admin_user_detail(request, pk: int):
     user.save()
 
     profile = getattr(user, "resource_profile", None)
+    capacity_changed = False
     if profile:
         max_cap = profile_payload.get("max_page_capacity")
         if max_cap is None:
             max_cap = profile_payload.get("max_capacity")
         if max_cap is not None:
-            profile.max_page_capacity = int(max_cap)
+            new_cap = int(max_cap)
+            capacity_changed = profile.max_page_capacity != new_cap
+            profile.max_page_capacity = new_cap
             profile.save(update_fields=["max_page_capacity", "updated_at"])
+
+    # Re-run queue assignment when capacity changes and resource can accept work.
+    # Admin capacity edits should make the resource immediately eligible for assignment.
+    if profile and capacity_changed and (not profile.is_on_break):
+        if profile.is_active_session:
+            profile.last_seen_at = timezone.now()
+            profile.save(update_fields=["last_seen_at", "updated_at"])
+        if profile.remaining_capacity > 0:
+            assign_pages_task.delay()
 
     return Response(
         {
@@ -811,6 +824,7 @@ def resource_break_toggle(request):
     if isinstance(enabled, str):
         enabled = enabled.strip().lower() in {"1", "true", "yes", "on"}
     profile.set_break(bool(enabled))
+    # Preserve existing assignments; only pause NEW auto-assignment while on break.
     if not profile.is_on_break and profile.remaining_capacity > 0:
         assign_pages_task.delay()
     return Response(
@@ -1053,16 +1067,33 @@ def _bundle_id_for_pages(document_id: int, page_numbers: list[int]) -> str:
 def _bundle_range_from_id(bundle_id: str, expected_document_id: int) -> tuple[int, int] | tuple[None, None]:
     if not bundle_id:
         return None, None
-    m = re.match(r"^B(?P<doc>\d+)P(?P<start>\d+)-(?P<end>\d+)$", bundle_id.strip(), re.IGNORECASE)
+    normalized = bundle_id.strip()
+    # Ignore Windows duplicate suffixes like " (1)" appended before extension.
+    normalized = re.sub(r"\s*\(\d+\)\s*$", "", normalized)
+
+    # Canonical format: B<doc>P<start>-<end> (preferred).
+    m = re.match(r"^B(?P<doc>\d+)P(?P<start>\d+)-(?P<end>\d+)$", normalized, re.IGNORECASE)
+    if m:
+        try:
+            doc = int(m.group("doc"))
+            start = int(m.group("start"))
+            end = int(m.group("end"))
+        except Exception:
+            return None, None
+        if doc != int(expected_document_id):
+            return None, None
+        return min(start, end), max(start, end)
+
+    # Backward-compatible formats seen from tray uploads:
+    # 1) P<start>-<end>
+    # 2) <start>-<end>
+    m = re.match(r"^P?(?P<start>\d+)-(?P<end>\d+)$", normalized, re.IGNORECASE)
     if not m:
         return None, None
     try:
-        doc = int(m.group("doc"))
         start = int(m.group("start"))
         end = int(m.group("end"))
     except Exception:
-        return None, None
-    if doc != int(expected_document_id):
         return None, None
     return min(start, end), max(start, end)
 
