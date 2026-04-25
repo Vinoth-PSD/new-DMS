@@ -11,13 +11,20 @@ from .services import assign_unassigned_pages, split_document_pages
 def _merge_docx_byte_segments(parts: list[bytes]) -> bytes:
     """Append multiple .docx files into one document (in order)."""
     from docx import Document
+    from docx.enum.text import WD_BREAK
     from docxcompose.composer import Composer
 
     master = Document(io.BytesIO(parts[0]))
     composer = Composer(master)
     for payload in parts[1:]:
-        # Keep split boundaries explicit in merged Word output.
-        master.add_page_break()
+        # Keep split boundaries explicit without creating an extra blank paragraph.
+        if master.paragraphs:
+            master.paragraphs[-1].add_run().add_break(WD_BREAK.PAGE)
+        else:
+            p = master.add_paragraph("")
+            p.paragraph_format.space_before = 0
+            p.paragraph_format.space_after = 0
+            p.add_run().add_break(WD_BREAK.PAGE)
         composer.append(Document(io.BytesIO(payload)))
     out = io.BytesIO()
     composer.save(out)
