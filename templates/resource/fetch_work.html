@@ -137,6 +137,7 @@
 
         assignmentsContainer.innerHTML = assignments.map((a) => {
             const bundleId = encodeURIComponent(a.bundle_id || '');
+            const bundleKey = `${a.document_id}-${(a.bundle_id || '').replace(/[^a-zA-Z0-9_-]/g, '_')}`;
             const processUrl = `/api/resource/work/bundles/${a.document_id}/download/?bundle_id=${bundleId}`;
             const submitUrl = `/api/resource/work/bundles/${a.document_id}/submit/?bundle_id=${bundleId}`;
             const statusPill = a.status === 'IN_PROGRESS'
@@ -177,8 +178,8 @@
                             style="background: #1a3c6e; color: #ffffff; font-weight: 600; padding: 8px 16px; border-radius: 6px; text-decoration: none; transition: background 0.2s; border: 0;">
                             Process &nbsp;<i class="fas fa-arrow-right" style="font-size: 10px;"></i>
                         </button>
-                        <input type="file" id="file-${a.document_id}" accept=".pdf,.doc,.docx" style="display:none;" onchange="submitWork('${submitUrl}', '${a.document_id}')">
-                        <button onclick="openUpload('${a.document_id}')" class="btn btn-sm" 
+                        <input type="file" id="file-${bundleKey}" accept=".pdf,.doc,.docx" style="display:none;" onchange="submitWork('${submitUrl}', '${bundleKey}')">
+                        <button onclick="openUpload('${bundleKey}')" class="btn btn-sm" 
                             style="background: #15803d; color: #ffffff; font-weight: 600; padding: 8px 12px; border-radius: 6px; border: 0; margin-left: 6px;">
                             Upload Cleaned
                         </button>
@@ -252,9 +253,9 @@
         }
     }
 
-    function openUpload(documentId) {
+    function openUpload(bundleKey) {
         suspendAutoRefresh = true;
-        const fileInput = document.getElementById(`file-${documentId}`);
+        const fileInput = document.getElementById(`file-${bundleKey}`);
         if (fileInput) {
             fileInput.click();
             // If user cancels file picker, release refresh lock shortly.
@@ -266,11 +267,20 @@
         }
     }
 
-    async function submitWork(url, pageId) {
-        const fileInput = document.getElementById(`file-${pageId}`);
+    async function submitWork(url, bundleKey) {
+        const fileInput = document.getElementById(`file-${bundleKey}`);
         if (!fileInput || !fileInput.files || !fileInput.files[0]) return;
         const formData = new FormData();
         formData.append('processed_file', fileInput.files[0]);
+        try {
+            const submitUrl = new URL(url, window.location.origin);
+            const bundleId = submitUrl.searchParams.get('bundle_id');
+            if (bundleId) {
+                formData.append('bundle_id', bundleId);
+            }
+        } catch (e) {
+            console.warn('Unable to parse submit URL for bundle_id', e);
+        }
         try {
             const response = await fetch(url, {
                 method: 'POST',

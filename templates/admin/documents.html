@@ -1033,11 +1033,19 @@
                     if (res.resource_profile_id != null) {
                         groupedByResource[key].resource_profile_id = res.resource_profile_id;
                     }
-                    if (!groupedByResource[key].started_at && (res.download_started_at || res.viewed_at)) {
-                        groupedByResource[key].started_at = res.download_started_at || res.viewed_at;
+                    const startedCandidate = res.download_started_at || res.viewed_at || null;
+                    if (startedCandidate) {
+                        const existingStarted = groupedByResource[key].started_at;
+                        if (!existingStarted || new Date(startedCandidate) > new Date(existingStarted)) {
+                            groupedByResource[key].started_at = startedCandidate;
+                        }
                     }
-                    if (res.submitted_at || res.completed_at) {
-                        groupedByResource[key].submitted_at = res.submitted_at || res.completed_at;
+                    const submittedCandidate = res.submitted_at || res.completed_at || null;
+                    if (submittedCandidate) {
+                        const existingSubmitted = groupedByResource[key].submitted_at;
+                        if (!existingSubmitted || new Date(submittedCandidate) > new Date(existingSubmitted)) {
+                            groupedByResource[key].submitted_at = submittedCandidate;
+                        }
                     }
                     if (res.status_raw === 'IN_PROGRESS') {
                         groupedByResource[key].status_raw = 'IN_PROGRESS';

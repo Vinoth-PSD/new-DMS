@@ -1017,11 +1017,25 @@ def resource_bundle_submit(request, document_id: int):
         )
     )
     bundle_id = (request.data.get("bundle_id") or request.query_params.get("bundle_id") or "").strip()
+    if not bundle_id:
+        bundle_id = _extract_bundle_id_from_filename(uploaded.name, document_id) or ""
     if bundle_id:
         start, end = _bundle_range_from_id(bundle_id, document_id)
         if start is None:
             return Response({"detail": "Invalid bundle_id"}, status=400)
         qs = qs.filter(page_number__gte=start, page_number__lte=end)
+    else:
+        active_numbers = list(qs.values_list("page_number", flat=True).order_by("page_number"))
+        if active_numbers:
+            split_count = 1
+            for idx in range(1, len(active_numbers)):
+                if active_numbers[idx] != active_numbers[idx - 1] + 1:
+                    split_count += 1
+            if split_count > 1:
+                return Response(
+                    {"detail": "bundle_id is required when multiple splits are active for the same document."},
+                    status=400,
+                )
     pages = list(qs.order_by("page_number"))
     if not pages:
         return Response({"detail": "No assigned pages for this document"}, status=404)
@@ -1096,6 +1110,35 @@ def _bundle_range_from_id(bundle_id: str, expected_document_id: int) -> tuple[in
     except Exception:
         return None, None
     return min(start, end), max(start, end)
+
+
+def _extract_bundle_id_from_filename(filename: str, expected_document_id: int) -> str | None:
+    if not filename:
+        return None
+    base = Path(str(filename)).name
+    # Prefer canonical token from generated names: ..._B<doc>P<start>-<end>_...
+    canonical = re.search(r"(B(?P<doc>\d+)P(?P<start>\d+)-(?P<end>\d+))", base, re.IGNORECASE)
+    if canonical:
+        try:
+            doc = int(canonical.group("doc"))
+            start = int(canonical.group("start"))
+            end = int(canonical.group("end"))
+        except Exception:
+            return None
+        if doc != int(expected_document_id):
+            return None
+        return f"B{doc}P{min(start, end)}-{max(start, end)}"
+
+    # Backward-compatible names: ..._P<start>-<end>_... or ..._<start>-<end>_...
+    fallback = re.search(r"(?:^|[_-])P?(?P<start>\d+)-(?P<end>\d+)(?:[_\.-]|$)", base, re.IGNORECASE)
+    if fallback:
+        try:
+            start = int(fallback.group("start"))
+            end = int(fallback.group("end"))
+        except Exception:
+            return None
+        return f"B{int(expected_document_id)}P{min(start, end)}-{max(start, end)}"
+    return None
 
 
 @api_view(["GET"])
@@ -1289,11 +1332,25 @@ def automation_job_submit(request, job_id: int):
         )
     )
     bundle_id = (request.data.get("bundle_id") or request.query_params.get("bundle_id") or "").strip()
+    if not bundle_id:
+        bundle_id = _extract_bundle_id_from_filename(uploaded.name, job_id) or ""
     if bundle_id:
         start, end = _bundle_range_from_id(bundle_id, job_id)
         if start is None:
             return Response({"detail": "Invalid bundle_id"}, status=400)
         qs = qs.filter(page_number__gte=start, page_number__lte=end)
+    else:
+        active_numbers = list(qs.values_list("page_number", flat=True).order_by("page_number"))
+        if active_numbers:
+            split_count = 1
+            for idx in range(1, len(active_numbers)):
+                if active_numbers[idx] != active_numbers[idx - 1] + 1:
+                    split_count += 1
+            if split_count > 1:
+                return Response(
+                    {"detail": "bundle_id is required when multiple splits are active for the same job."},
+                    status=400,
+                )
     pages = list(qs.order_by("page_number"))
     if not pages:
         return Response({"detail": "No assigned pages for this job"}, status=404)
